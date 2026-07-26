@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 
+import '../../shared/layout/breakpoints.dart';
+import '../../shared/shell/shell_state_provider.dart';
 import 'channel.dart';
 import 'channel_detail_page.dart';
 import 'channels_provider.dart';
@@ -27,6 +29,11 @@ void openChannelLink({
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Channel could not be opened')),
     );
+    return;
+  }
+
+  if (isExpandedLayout(context)) {
+    ref.read(shellStateProvider.notifier).selectChannel(channelId);
     return;
   }
 

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:buzz/features/channels/channel.dart';
 import 'package:buzz/features/channels/channels_provider.dart';
 import 'package:buzz/features/channels/deep_link_dispatcher.dart';
@@ -5,6 +7,7 @@ import 'package:buzz/features/invites/invite_join_provider.dart';
 import 'package:buzz/shared/auth/auth.dart';
 import 'package:buzz/shared/deeplink/deep_link.dart';
 import 'package:buzz/shared/deeplink/pending_deep_link_provider.dart';
+import 'package:buzz/shared/shell/shell_state_provider.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
@@ -190,6 +193,127 @@ void main() {
       expect(find.text('Pairing'), findsOneWidget);
     },
   );
+
+  group('expanded layout', () {
+    void useWideSurface(WidgetTester tester) {
+      tester.view.devicePixelRatio = 1.0;
+      tester.view.physicalSize = const Size(1440, 900);
+      addTearDown(tester.view.reset);
+    }
+
+    testWidgets('writes the selection into shell state without pushing', (
+      tester,
+    ) async {
+      useWideSurface(tester);
+      const link = MessageDeepLink(
+        channelId: 'channel-1',
+        messageId: 'message-2',
+        threadRootId: 'message-1',
+      );
+      final observer = _CountingNavigatorObserver();
+      final container = ProviderContainer(
+        overrides: [
+          pendingDeepLinkProvider.overrideWith(
+            () => _FakePendingDeepLinkNotifier(link),
+          ),
+          channelsProvider.overrideWith(
+            () => _FakeChannelsNotifier(Future.value([_channel])),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp(
+            navigatorObservers: [observer],
+            home: const DeepLinkDispatcher(
+              child: Scaffold(body: Text('Shell')),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final state = container.read(shellStateProvider);
+      expect(state.selectedChannelId, 'channel-1');
+      expect(state.pendingInitialMessageId, 'message-2');
+      expect(state.pendingInitialThreadRootId, 'message-1');
+      // No route pushed beyond the initial one; the shell stays visible.
+      expect(observer.pushCount, 1);
+      expect(find.text('Shell'), findsOneWidget);
+    });
+
+    testWidgets('pops a stacked full-window route before selecting', (
+      tester,
+    ) async {
+      useWideSurface(tester);
+      final pending = _MutablePendingDeepLinkNotifier();
+      final container = ProviderContainer(
+        overrides: [
+          pendingDeepLinkProvider.overrideWith(() => pending),
+          channelsProvider.overrideWith(
+            () => _FakeChannelsNotifier(Future.value([_channel])),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+      final navigatorKey = GlobalKey<NavigatorState>();
+
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp(
+            navigatorKey: navigatorKey,
+            home: const DeepLinkDispatcher(
+              child: Scaffold(body: Text('Shell')),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Stack a full-window route (settings-like) over the shell.
+      unawaited(
+        navigatorKey.currentState!.push(
+          MaterialPageRoute<void>(
+            builder: (_) => const Scaffold(body: Text('Stacked')),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Stacked'), findsOneWidget);
+
+      pending.emit(
+        const MessageDeepLink(channelId: 'channel-1', messageId: 'message-1'),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Stacked'), findsNothing);
+      expect(find.text('Shell'), findsOneWidget);
+      final state = container.read(shellStateProvider);
+      expect(state.selectedChannelId, 'channel-1');
+      expect(state.pendingInitialMessageId, 'message-1');
+    });
+  });
+}
+
+class _CountingNavigatorObserver extends NavigatorObserver {
+  int pushCount = 0;
+
+  @override
+  void didPush(Route<dynamic> route, Route<dynamic>? previousRoute) {
+    pushCount += 1;
+    super.didPush(route, previousRoute);
+  }
+}
+
+class _MutablePendingDeepLinkNotifier extends PendingDeepLinkNotifier {
+  @override
+  BuzzDeepLink? build() => null;
+
+  void emit(BuzzDeepLink link) => state = link;
 }
 
 final _channel = Channel(
