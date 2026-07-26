@@ -62,6 +62,7 @@ void main() {
         readStateProvider.overrideWith(
           () => readState ?? _RecordingReadStateNotifier(),
         ),
+        channelActionsProvider.overrideWith((ref) => _FakeChannelActions(ref)),
         relayClientProvider.overrideWithValue(
           RelayClient(baseUrl: 'http://localhost:3000'),
         ),
@@ -176,6 +177,38 @@ void main() {
     expect(find.text('beta'), findsOneWidget);
   });
 
+  testWidgets('embedded manage-channel leave clears the selection instead of '
+      'popping the root route', (tester) async {
+    useWideSurface(tester);
+    final container = createContainer();
+    final observer = _CountingNavigatorObserver();
+
+    await tester.pumpWidget(buildTestable(container, observer: observer));
+    await tester.pump();
+
+    container.read(shellStateProvider.notifier).selectChannel('channel-a');
+    await tester.pump();
+    await tester.pump();
+    expect(find.byType(ChannelDetailView), findsOneWidget);
+    final pushesBeforeSheet = observer.pushCount;
+    final popsBeforeSheet = observer.popCount;
+
+    await tester.tap(find.byTooltip('Manage channel'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Leave channel'));
+    await tester.pumpAndSettle();
+
+    // The shell selection is cleared instead of popping the root route.
+    expect(container.read(shellStateProvider).selectedChannelId, isNull);
+    expect(find.byType(ChannelDetailView), findsNothing);
+    expect(find.text('Select a channel'), findsOneWidget);
+    // Only the sheet's own route was pushed and popped; the root route
+    // hosting the workspace is still mounted.
+    expect(observer.pushCount, pushesBeforeSheet + 1);
+    expect(observer.popCount, popsBeforeSheet + 1);
+    expect(find.byType(ChannelWorkspace), findsOneWidget);
+  });
+
   testWidgets('a repeated identical deep-link selection remounts the view', (
     tester,
   ) async {
@@ -274,10 +307,33 @@ class _RecordingReadStateNotifier extends ReadStateNotifier {
 
 class _CountingNavigatorObserver extends NavigatorObserver {
   int pushCount = 0;
+  int popCount = 0;
 
   @override
   void didPush(Route<dynamic> route, Route<dynamic>? previousRoute) {
     pushCount += 1;
     super.didPush(route, previousRoute);
   }
+
+  @override
+  void didPop(Route<dynamic> route, Route<dynamic>? previousRoute) {
+    popCount += 1;
+    super.didPop(route, previousRoute);
+  }
+}
+
+class _FakeChannelActions extends ChannelActions {
+  _FakeChannelActions(Ref ref)
+    : super(
+        ref: ref,
+        session: ref.read(relaySessionProvider.notifier),
+        signedEventRelay: SignedEventRelay(
+          session: ref.read(relaySessionProvider.notifier),
+          nsec: null,
+        ),
+        currentPubkey: 'self',
+      );
+
+  @override
+  Future<void> leaveChannel(String channelId) async {}
 }

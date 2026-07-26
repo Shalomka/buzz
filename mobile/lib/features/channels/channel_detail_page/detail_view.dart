@@ -159,7 +159,14 @@ class ChannelDetailView extends HookConsumerWidget {
                   builder: (_) => ManageChannelSheet(channel: resolvedChannel),
                 );
                 if (shouldClose == true && context.mounted) {
-                  Navigator.of(context).pop();
+                  // At expanded widths the view is embedded at the shell
+                  // root (single route), so popping would empty the root
+                  // Navigator — clear the shell selection instead.
+                  if (isExpandedLayout(context)) {
+                    ref.read(shellStateProvider.notifier).clearSelection();
+                  } else {
+                    Navigator.of(context).pop();
+                  }
                 }
               },
               tooltip: 'Manage channel',
