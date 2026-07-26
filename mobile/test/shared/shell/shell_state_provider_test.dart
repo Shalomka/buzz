@@ -256,9 +256,11 @@ void main() {
 
     notifier.selectChannel('channel-1');
 
-    // Re-set the same id: activeCommunityProvider rebuilds, but the watched
-    // identity is unchanged, so the shell state survives.
-    container.read(_activeCommunityIdProvider.notifier).setId('community-a');
+    // Force a rebuild that resolves to the same identity: the watched
+    // community id is unchanged, so the shell state survives the reload.
+    // (Re-setting an equal id would not notify at all — invalidate is the
+    // real reload path, e.g. a community rename.)
+    container.invalidate(activeCommunityProvider);
     await container.read(activeCommunityProvider.future);
 
     expect(container.read(shellStateProvider).selectedChannelId, 'channel-1');
