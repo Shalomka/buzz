@@ -6,10 +6,13 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 
 void main() {
-  ProviderContainer buildContainer() {
+  // The override is async on purpose: every rebuild goes through a real
+  // AsyncLoading window, exactly like production, so these tests catch any
+  // watch expression that spuriously resets shell state during reloads.
+  Future<ProviderContainer> buildContainer() async {
     final container = ProviderContainer(
       overrides: [
-        activeCommunityProvider.overrideWith((ref) {
+        activeCommunityProvider.overrideWith((ref) async {
           final id = ref.watch(_activeCommunityIdProvider);
           return Community(
             id: id,
@@ -23,18 +26,21 @@ void main() {
     addTearDown(container.dispose);
     // Keep the shell provider active so community changes propagate to it.
     container.listen(shellStateProvider, (_, _) {});
+    // Settle the initial load so the watched identity is established before
+    // tests mutate shell state.
+    await container.read(activeCommunityProvider.future);
     return container;
   }
 
   test('starts in the initial state', () async {
-    final container = buildContainer();
+    final container = await buildContainer();
 
     expect(container.read(shellStateProvider), const ShellState());
   });
 
   group('selectChannel', () {
-    test('stores the id and forces channels content', () {
-      final container = buildContainer();
+    test('stores the id and forces channels content', () async {
+      final container = await buildContainer();
       final notifier = container.read(shellStateProvider.notifier);
 
       notifier.showPulse();
@@ -45,8 +51,8 @@ void main() {
       expect(state.mainContent, ShellMainContent.channels);
     });
 
-    test('stores pending IDs and bumps the nonce', () {
-      final container = buildContainer();
+    test('stores pending IDs and bumps the nonce', () async {
+      final container = await buildContainer();
       final notifier = container.read(shellStateProvider.notifier);
 
       notifier.selectChannel(
@@ -61,8 +67,8 @@ void main() {
       expect(state.pendingSelectionNonce, 1);
     });
 
-    test('bumps the nonce again on a repeated identical deep link', () {
-      final container = buildContainer();
+    test('bumps the nonce again on a repeated identical deep link', () async {
+      final container = await buildContainer();
       final notifier = container.read(shellStateProvider.notifier);
 
       notifier.selectChannel('channel-1', initialMessageId: 'msg-1');
@@ -71,8 +77,8 @@ void main() {
       expect(container.read(shellStateProvider).pendingSelectionNonce, 2);
     });
 
-    test('without pending IDs clears stale ones and keeps the nonce', () {
-      final container = buildContainer();
+    test('without pending IDs clears stale ones and keeps the nonce', () async {
+      final container = await buildContainer();
       final notifier = container.read(shellStateProvider.notifier);
 
       notifier.selectChannel(
@@ -89,8 +95,8 @@ void main() {
       expect(state.pendingSelectionNonce, 1);
     });
 
-    test('closes an open thread panel', () {
-      final container = buildContainer();
+    test('closes an open thread panel', () async {
+      final container = await buildContainer();
       final notifier = container.read(shellStateProvider.notifier);
 
       notifier.openThreadPanel('root-1');
@@ -102,8 +108,8 @@ void main() {
       );
     });
 
-    test('closes an open forum thread panel', () {
-      final container = buildContainer();
+    test('closes an open forum thread panel', () async {
+      final container = await buildContainer();
       final notifier = container.read(shellStateProvider.notifier);
 
       notifier.openForumThreadPanel('post-1');
@@ -115,8 +121,8 @@ void main() {
       );
     });
 
-    test('keeps the activity panel open', () {
-      final container = buildContainer();
+    test('keeps the activity panel open', () async {
+      final container = await buildContainer();
       final notifier = container.read(shellStateProvider.notifier);
 
       notifier.toggleActivityPanel();
@@ -130,8 +136,8 @@ void main() {
   });
 
   group('side panels', () {
-    test('are mutually exclusive', () {
-      final container = buildContainer();
+    test('are mutually exclusive', () async {
+      final container = await buildContainer();
       final notifier = container.read(shellStateProvider.notifier);
 
       notifier.openThreadPanel('root-1', initialMessageId: 'msg-1');
@@ -159,8 +165,8 @@ void main() {
       );
     });
 
-    test('toggleActivityPanel toggles open and closed', () {
-      final container = buildContainer();
+    test('toggleActivityPanel toggles open and closed', () async {
+      final container = await buildContainer();
       final notifier = container.read(shellStateProvider.notifier);
 
       notifier.toggleActivityPanel();
@@ -176,8 +182,8 @@ void main() {
       );
     });
 
-    test('closeSidePanel closes whichever panel is open', () {
-      final container = buildContainer();
+    test('closeSidePanel closes whichever panel is open', () async {
+      final container = await buildContainer();
       final notifier = container.read(shellStateProvider.notifier);
 
       notifier.openThreadPanel('root-1');
@@ -190,23 +196,26 @@ void main() {
     });
   });
 
-  test('clearSelection clears selection, pending IDs, and thread panel', () {
-    final container = buildContainer();
-    final notifier = container.read(shellStateProvider.notifier);
+  test(
+    'clearSelection clears selection, pending IDs, and thread panel',
+    () async {
+      final container = await buildContainer();
+      final notifier = container.read(shellStateProvider.notifier);
 
-    notifier.selectChannel('channel-1', initialMessageId: 'msg-1');
-    notifier.openThreadPanel('root-1');
-    notifier.clearSelection();
+      notifier.selectChannel('channel-1', initialMessageId: 'msg-1');
+      notifier.openThreadPanel('root-1');
+      notifier.clearSelection();
 
-    final state = container.read(shellStateProvider);
-    expect(state.selectedChannelId, isNull);
-    expect(state.pendingInitialMessageId, isNull);
-    expect(state.pendingInitialThreadRootId, isNull);
-    expect(state.sidePanel, const ShellSidePanelNone());
-  });
+      final state = container.read(shellStateProvider);
+      expect(state.selectedChannelId, isNull);
+      expect(state.pendingInitialMessageId, isNull);
+      expect(state.pendingInitialThreadRootId, isNull);
+      expect(state.sidePanel, const ShellSidePanelNone());
+    },
+  );
 
-  test('showPulse and showChannels switch the main content', () {
-    final container = buildContainer();
+  test('showPulse and showChannels switch the main content', () async {
+    final container = await buildContainer();
     final notifier = container.read(shellStateProvider.notifier);
 
     notifier.showPulse();
@@ -223,7 +232,7 @@ void main() {
   });
 
   test('community switch resets selection, pending IDs, and panel', () async {
-    final container = buildContainer();
+    final container = await buildContainer();
     final notifier = container.read(shellStateProvider.notifier);
 
     notifier.selectChannel(
@@ -242,7 +251,7 @@ void main() {
   });
 
   test('same community identity does not reset state', () async {
-    final container = buildContainer();
+    final container = await buildContainer();
     final notifier = container.read(shellStateProvider.notifier);
 
     notifier.selectChannel('channel-1');

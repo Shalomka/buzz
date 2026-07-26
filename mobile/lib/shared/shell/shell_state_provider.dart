@@ -12,13 +12,11 @@ class ShellStateNotifier extends Notifier<ShellState> {
   @override
   ShellState build() {
     // Reset to the initial state whenever the active community changes.
-    // unwrapPrevious() keeps the reload window from briefly reporting the
-    // previous community's id while the switch is in flight.
-    ref.watch(
-      activeCommunityProvider.select(
-        (value) => value.unwrapPrevious().value?.id,
-      ),
-    );
+    // Deliberately no unwrapPrevious(): while a reload is in flight the
+    // AsyncLoading state keeps reporting the previous community's id, so
+    // unrelated reloads (rename, add/remove) never spuriously reset the
+    // shell — only a genuine id change does.
+    ref.watch(activeCommunityProvider.select((value) => value.value?.id));
     return const ShellState();
   }
 
