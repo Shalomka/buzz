@@ -3,7 +3,10 @@ import 'package:flutter/services.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
+import '../../shared/layout/breakpoints.dart';
+import '../../shared/shell/shell_state_provider.dart';
 import '../../shared/theme/theme.dart';
+import '../../shared/widgets/adaptive_modal.dart';
 import '../custom_emoji/custom_emoji.dart';
 import '../custom_emoji/custom_emoji_provider.dart';
 import 'channel_management_provider.dart';
@@ -31,8 +34,8 @@ void showMessageActions({
   bool isMember = false,
   bool isArchived = false,
 }) {
-  showModalBottomSheet<void>(
-    context: context,
+  showAdaptiveModal<void>(
+    context,
     showDragHandle: true,
     builder: (sheetContext) => SafeArea(
       child: Padding(
@@ -103,7 +106,14 @@ void showMessageActions({
                 leading: const Icon(LucideIcons.messageSquareReply),
                 title: const Text('Reply in thread'),
                 onTap: () {
+                  // Close the actions surface first, then open the thread.
                   Navigator.of(sheetContext).pop();
+                  if (isExpandedLayout(context)) {
+                    ref
+                        .read(shellStateProvider.notifier)
+                        .openThreadPanel(message.id);
+                    return;
+                  }
                   Navigator.of(context).push(
                     MaterialPageRoute<void>(
                       builder: (_) => ThreadDetailPage(
@@ -177,8 +187,8 @@ void _showEditSheet({
   required String channelId,
 }) {
   final controller = TextEditingController(text: message.content);
-  showModalBottomSheet<void>(
-    context: context,
+  showAdaptiveModal<void>(
+    context,
     isScrollControlled: true,
     showDragHandle: true,
     builder: (sheetContext) => Padding(

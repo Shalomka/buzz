@@ -3,6 +3,8 @@ import 'package:flutter_hooks/flutter_hooks.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
+import '../../shared/layout/breakpoints.dart';
+import '../../shared/shell/shell_state_provider.dart';
 import '../../shared/theme/theme.dart';
 import '../../shared/widgets/avatar_image.dart';
 import '../../shared/widgets/filter_chip_bar.dart';
@@ -28,12 +30,6 @@ class SearchPage extends HookConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final searchState = ref.watch(searchProvider);
-    final currentPubkey = ref
-        .watch(profileProvider)
-        .whenData((value) => value?.pubkey)
-        .value;
-    final activeFilter = useState(_SearchFilter.all);
     final textController = useTextEditingController();
     final hasText = useListenableSelector(
       textController,
@@ -43,33 +39,7 @@ class SearchPage extends HookConsumerWidget {
     return FrostedScaffold(
       resizeToAvoidBottomInset: true,
       appBar: FrostedAppBar(
-        title: Container(
-          height: 36,
-          padding: const EdgeInsets.symmetric(horizontal: Grid.half),
-          decoration: BoxDecoration(
-            color: context.colors.surfaceContainerHighest,
-            borderRadius: BorderRadius.circular(Radii.lg),
-          ),
-          child: TextField(
-            controller: textController,
-            decoration: InputDecoration(
-              hintText: 'Search messages, channels, people\u2026',
-              hintStyle: context.textTheme.bodyMedium?.copyWith(
-                color: context.colors.onSurfaceVariant,
-              ),
-              prefixIcon: const Icon(LucideIcons.search, size: 16),
-              prefixIconConstraints: const BoxConstraints(minWidth: 32),
-              border: InputBorder.none,
-              enabledBorder: InputBorder.none,
-              focusedBorder: InputBorder.none,
-              isDense: true,
-              contentPadding: const EdgeInsets.symmetric(vertical: Grid.xxs),
-            ),
-            style: context.textTheme.bodyMedium,
-            onChanged: (value) =>
-                ref.read(searchProvider.notifier).search(value),
-          ),
-        ),
+        title: SearchInputField(controller: textController),
         actions: [
           if (hasText)
             IconButton(
@@ -81,26 +51,103 @@ class SearchPage extends HookConsumerWidget {
             ),
         ],
       ),
-      body: Column(
-        children: [
-          SizedBox(height: frostedAppBarHeight(context)),
-          FilterChipBar<_SearchFilter>(
-            selected: activeFilter.value,
-            onSelected: (f) => activeFilter.value = f,
-            items: [
-              for (final f in _SearchFilter.values)
-                FilterChipItem(id: f, label: f.label),
-            ],
-          ),
-          Expanded(
-            child: _SearchBody(
-              state: searchState,
-              filter: activeFilter.value,
-              currentPubkey: currentPubkey,
-            ),
-          ),
-        ],
+      body: SearchView(topPadding: frostedAppBarHeight(context)),
+    );
+  }
+}
+
+/// The search query field, driving [searchProvider] as the user types.
+///
+/// Hosted by [SearchPage]'s app bar at narrow widths and by the search
+/// overlay at expanded widths, which has no app bar of its own.
+class SearchInputField extends ConsumerWidget {
+  /// Controller for the query text, owned by the hosting surface.
+  final TextEditingController controller;
+
+  /// Whether the field grabs focus as soon as it is shown.
+  ///
+  /// Off by default so [SearchPage] keeps its current behavior. The overlay
+  /// opts in: it is reached by a keyboard shortcut, so the caller's hands are
+  /// already on the keys and typing must land in the field immediately.
+  final bool autofocus;
+
+  const SearchInputField({
+    super.key,
+    required this.controller,
+    this.autofocus = false,
+  });
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return Container(
+      height: 36,
+      padding: const EdgeInsets.symmetric(horizontal: Grid.half),
+      decoration: BoxDecoration(
+        color: context.colors.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(Radii.lg),
       ),
+      child: TextField(
+        controller: controller,
+        autofocus: autofocus,
+        decoration: InputDecoration(
+          hintText: 'Search messages, channels, people\u2026',
+          hintStyle: context.textTheme.bodyMedium?.copyWith(
+            color: context.colors.onSurfaceVariant,
+          ),
+          prefixIcon: const Icon(LucideIcons.search, size: 16),
+          prefixIconConstraints: const BoxConstraints(minWidth: 32),
+          border: InputBorder.none,
+          enabledBorder: InputBorder.none,
+          focusedBorder: InputBorder.none,
+          isDense: true,
+          contentPadding: const EdgeInsets.symmetric(vertical: Grid.xxs),
+        ),
+        style: context.textTheme.bodyMedium,
+        onChanged: (value) => ref.read(searchProvider.notifier).search(value),
+      ),
+    );
+  }
+}
+
+/// Filter chips plus search results, without any page chrome.
+///
+/// Hosted by [SearchPage] at narrow widths and by the expanded-width search
+/// overlay; the query field itself belongs to the host ([SearchInputField]).
+class SearchView extends HookConsumerWidget {
+  /// Space reserved above the filter chips \u2014 pages pass the frosted app bar
+  /// height they render behind, the overlay passes none.
+  final double topPadding;
+
+  const SearchView({super.key, this.topPadding = 0});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final searchState = ref.watch(searchProvider);
+    final currentPubkey = ref
+        .watch(profileProvider)
+        .whenData((value) => value?.pubkey)
+        .value;
+    final activeFilter = useState(_SearchFilter.all);
+
+    return Column(
+      children: [
+        SizedBox(height: topPadding),
+        FilterChipBar<_SearchFilter>(
+          selected: activeFilter.value,
+          onSelected: (f) => activeFilter.value = f,
+          items: [
+            for (final f in _SearchFilter.values)
+              FilterChipItem(id: f, label: f.label),
+          ],
+        ),
+        Expanded(
+          child: _SearchBody(
+            state: searchState,
+            filter: activeFilter.value,
+            currentPubkey: currentPubkey,
+          ),
+        ),
+      ],
     );
   }
 }
@@ -174,13 +221,32 @@ class _SearchBody extends ConsumerWidget {
   }
 }
 
-class _ChannelsSection extends StatelessWidget {
+/// Opens [channel] from a search hit.
+///
+/// At expanded widths the hit is shown inside the search overlay dialog, so
+/// the overlay is dismissed and the shell's message pane takes over instead
+/// of pushing a full-window route. Narrow widths keep pushing as before.
+void _openChannelFromHit(BuildContext context, WidgetRef ref, Channel channel) {
+  if (isExpandedLayout(context)) {
+    final navigator = Navigator.of(context);
+    if (navigator.canPop()) navigator.pop();
+    ref.read(shellStateProvider.notifier).selectChannel(channel.id);
+    return;
+  }
+  Navigator.of(context).push(
+    MaterialPageRoute<void>(
+      builder: (_) => ChannelDetailPage(channel: channel),
+    ),
+  );
+}
+
+class _ChannelsSection extends ConsumerWidget {
   final List<Channel> channels;
 
   const _ChannelsSection({required this.channels});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -214,11 +280,7 @@ class _ChannelsSection extends StatelessWidget {
                     ),
                   )
                 : null,
-            onTap: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(
-                builder: (_) => ChannelDetailPage(channel: channel),
-              ),
-            ),
+            onTap: () => _openChannelFromHit(context, ref, channel),
           ),
       ],
     );
@@ -255,11 +317,7 @@ class _PeopleSection extends ConsumerWidget {
                   .read(channelActionsProvider)
                   .openDm(pubkeys: [user.pubkey]);
               if (!context.mounted) return;
-              await Navigator.of(context).push(
-                MaterialPageRoute<void>(
-                  builder: (_) => ChannelDetailPage(channel: channel),
-                ),
-              );
+              _openChannelFromHit(context, ref, channel);
             },
           ),
       ],
@@ -299,7 +357,7 @@ class _MessagesSection extends ConsumerWidget {
   }
 }
 
-class _MessageTile extends StatelessWidget {
+class _MessageTile extends ConsumerWidget {
   final SearchHit hit;
   final UserProfile? authorProfile;
   final Map<String, UserProfile> userCache;
@@ -315,7 +373,7 @@ class _MessageTile extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final authorName = authorProfile?.label ?? shortPubkey(hit.pubkey);
     final timeAgo = relativeTime(hit.createdAt);
 
@@ -373,14 +431,35 @@ class _MessageTile extends StatelessWidget {
           ),
         ],
       ),
-      onTap: () => _navigateToHit(context, hit, channel),
+      onTap: () => _navigateToHit(context, ref, hit, channel),
     );
   }
 
-  void _navigateToHit(BuildContext context, SearchHit hit, Channel? channel) {
+  void _navigateToHit(
+    BuildContext context,
+    WidgetRef ref,
+    SearchHit hit,
+    Channel? channel,
+  ) {
     if (channel == null) return;
 
     if (hit.kind == 45001) {
+      // At expanded widths the hit lives inside the search overlay dialog, so
+      // dismiss it first and hand the post to the shell's side panel — pushing
+      // a full-window route would stack it over the still-open overlay.
+      //
+      // The panel body renders against the workspace's channel, so the hit's
+      // channel has to be selected first; selectChannel also clears any
+      // forum panel, hence the ordering.
+      if (isExpandedLayout(context)) {
+        final navigator = Navigator.of(context);
+        if (navigator.canPop()) navigator.pop();
+        ref.read(shellStateProvider.notifier)
+          ..selectChannel(channel.id)
+          ..openForumThreadPanel(hit.eventId);
+        return;
+      }
+      // Narrow keeps its full-window route.
       Navigator.of(context).push(
         MaterialPageRoute<void>(
           builder: (_) => ForumThreadPage(
@@ -392,13 +471,9 @@ class _MessageTile extends StatelessWidget {
           ),
         ),
       );
-    } else {
-      Navigator.of(context).push(
-        MaterialPageRoute<void>(
-          builder: (_) => ChannelDetailPage(channel: channel),
-        ),
-      );
+      return;
     }
+    _openChannelFromHit(context, ref, channel);
   }
 }
 

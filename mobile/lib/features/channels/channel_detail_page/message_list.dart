@@ -85,11 +85,24 @@ class _MessageList extends HookConsumerWidget {
     }, [channelId, entries.length, itemPositionsListener]);
 
     useEffect(() {
-      if (initialThreadRootId == null || didOpenInitialThread.value) {
+      final rootId = initialThreadRootId;
+      if (rootId == null || didOpenInitialThread.value) {
+        return null;
+      }
+      if (isExpandedLayout(context)) {
+        // The shell's thread panel resolves the head itself (including
+        // roots outside the loaded window), so open it without waiting.
+        didOpenInitialThread.value = true;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!context.mounted) return;
+          ref
+              .read(shellStateProvider.notifier)
+              .openThreadPanel(rootId, initialMessageId: initialMessageId);
+        });
         return null;
       }
       final threadHead = allMessages
-          .where((message) => message.id == initialThreadRootId)
+          .where((message) => message.id == rootId)
           .firstOrNull;
       if (threadHead == null) return null;
       didOpenInitialThread.value = true;

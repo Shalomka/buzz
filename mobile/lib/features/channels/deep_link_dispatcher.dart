@@ -3,6 +3,8 @@ import 'package:hooks_riverpod/hooks_riverpod.dart';
 
 import '../../shared/deeplink/deep_link.dart';
 import '../../shared/deeplink/pending_deep_link_provider.dart';
+import '../../shared/layout/breakpoints.dart';
+import '../../shared/shell/shell_state_provider.dart';
 import '../invites/invite_join_provider.dart';
 import '../invites/invite_join_sheet.dart';
 import 'channel.dart';
@@ -92,6 +94,21 @@ class _DeepLinkDispatcherState extends ConsumerState<DeepLinkDispatcher> {
       return;
     }
     if (!context.mounted) return;
+
+    if (isExpandedLayout(context)) {
+      // A stacked full-window route (settings, pairing, media viewer, pulse
+      // compose) would hide the shell selection entirely — pop back to the
+      // shell first, then select without pushing.
+      Navigator.of(context).popUntil((route) => route.isFirst);
+      ref
+          .read(shellStateProvider.notifier)
+          .selectChannel(
+            channel.id,
+            initialMessageId: link.messageId,
+            initialThreadRootId: link.threadRootId,
+          );
+      return;
+    }
 
     Navigator.of(context).push(
       MaterialPageRoute<void>(

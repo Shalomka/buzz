@@ -5,6 +5,8 @@ import 'package:flutter_hooks/flutter_hooks.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
+import '../../shared/layout/breakpoints.dart';
+import '../../shared/shell/shell_state_provider.dart';
 import '../../shared/theme/theme.dart';
 import '../../shared/widgets/frosted_app_bar.dart';
 import '../channels/channel.dart';
@@ -102,7 +104,7 @@ class ForumPostsView extends HookConsumerWidget {
                       return ForumPostCard(
                         post: post,
                         currentPubkey: currentPubkey,
-                        onTap: () => _openThread(context, post),
+                        onTap: () => _openThread(context, ref, post),
                         onDelete: (eventId) async {
                           await deleteForumEvent(
                             ref,
@@ -155,7 +157,11 @@ class ForumPostsView extends HookConsumerWidget {
     );
   }
 
-  void _openThread(BuildContext context, ForumPost post) {
+  void _openThread(BuildContext context, WidgetRef ref, ForumPost post) {
+    if (isExpandedLayout(context)) {
+      ref.read(shellStateProvider.notifier).openForumThreadPanel(post.eventId);
+      return;
+    }
     Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => ForumThreadPage(

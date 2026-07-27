@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_hooks/flutter_hooks.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:video_player/video_player.dart';
@@ -238,50 +239,52 @@ class _MediaImageViewerPageState extends State<MediaImageViewerPage>
 
   @override
   Widget build(BuildContext context) {
-    return PopScope<void>(
-      canPop: _canDismissWithHero,
-      onPopInvokedWithResult: (didPop, result) {
-        if (didPop) {
-          return;
-        }
-        unawaited(_dismiss());
-      },
-      child: Scaffold(
-        key: const ValueKey('message-media-image-viewer'),
-        backgroundColor: Colors.black.withValues(
-          alpha: (1 - (_dragOffset.abs() / _backgroundFadeDivisor)).clamp(
-            0.3,
-            1.0,
+    return _EscToDismiss(
+      child: PopScope<void>(
+        canPop: _canDismissWithHero,
+        onPopInvokedWithResult: (didPop, result) {
+          if (didPop) {
+            return;
+          }
+          unawaited(_dismiss());
+        },
+        child: Scaffold(
+          key: const ValueKey('message-media-image-viewer'),
+          backgroundColor: Colors.black.withValues(
+            alpha: (1 - (_dragOffset.abs() / _backgroundFadeDivisor)).clamp(
+              0.3,
+              1.0,
+            ),
           ),
-        ),
-        body: Stack(
-          children: [
-            Positioned.fill(
-              child: Transform.translate(
-                offset: Offset(0, _dragOffset),
-                child: InteractiveViewer(
-                  transformationController: _transformationController,
-                  onInteractionStart: _onInteractionStart,
-                  onInteractionUpdate: _onInteractionUpdate,
-                  onInteractionEnd: _onInteractionEnd,
-                  minScale: 1,
-                  maxScale: 4,
-                  child: Center(
-                    child: HeroMode(
-                      key: const ValueKey(
-                        'message-media-image-viewer-hero-mode',
-                      ),
-                      enabled: !_disableHeroOnDismiss,
-                      child: Hero(
-                        tag: widget.heroTag,
-                        child: MediaImage(
-                          url: widget.imageUrl,
-                          boundDecodeToLayout: false,
-                          fit: BoxFit.contain,
-                          semanticLabel: widget.semanticLabel,
-                          errorBuilder: (_, _, _) => const _MediaLoadFailure(
-                            message: 'Failed to load image',
-                            icon: LucideIcons.imageOff,
+          body: Stack(
+            children: [
+              Positioned.fill(
+                child: Transform.translate(
+                  offset: Offset(0, _dragOffset),
+                  child: InteractiveViewer(
+                    transformationController: _transformationController,
+                    onInteractionStart: _onInteractionStart,
+                    onInteractionUpdate: _onInteractionUpdate,
+                    onInteractionEnd: _onInteractionEnd,
+                    minScale: 1,
+                    maxScale: 4,
+                    child: Center(
+                      child: HeroMode(
+                        key: const ValueKey(
+                          'message-media-image-viewer-hero-mode',
+                        ),
+                        enabled: !_disableHeroOnDismiss,
+                        child: Hero(
+                          tag: widget.heroTag,
+                          child: MediaImage(
+                            url: widget.imageUrl,
+                            boundDecodeToLayout: false,
+                            fit: BoxFit.contain,
+                            semanticLabel: widget.semanticLabel,
+                            errorBuilder: (_, _, _) => const _MediaLoadFailure(
+                              message: 'Failed to load image',
+                              icon: LucideIcons.imageOff,
+                            ),
                           ),
                         ),
                       ),
@@ -289,26 +292,26 @@ class _MediaImageViewerPageState extends State<MediaImageViewerPage>
                   ),
                 ),
               ),
-            ),
-            PositionedDirectional(
-              top: Grid.sm,
-              end: Grid.sm,
-              child: SafeArea(
-                child: DecoratedBox(
-                  decoration: const BoxDecoration(
-                    color: Color.fromRGBO(0, 0, 0, 0.56),
-                    shape: BoxShape.circle,
-                  ),
-                  child: IconButton(
-                    key: const ValueKey('message-media-image-viewer-close'),
-                    onPressed: _dismiss,
-                    tooltip: 'Close image viewer',
-                    icon: const Icon(LucideIcons.x, color: Colors.white),
+              PositionedDirectional(
+                top: Grid.sm,
+                end: Grid.sm,
+                child: SafeArea(
+                  child: DecoratedBox(
+                    decoration: const BoxDecoration(
+                      color: Color.fromRGBO(0, 0, 0, 0.56),
+                      shape: BoxShape.circle,
+                    ),
+                    child: IconButton(
+                      key: const ValueKey('message-media-image-viewer-close'),
+                      onPressed: _dismiss,
+                      tooltip: 'Close image viewer',
+                      icon: const Icon(LucideIcons.x, color: Colors.white),
+                    ),
                   ),
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -379,64 +382,89 @@ class _MediaVideoViewerPageState extends State<MediaVideoViewerPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      key: const ValueKey('message-media-video-viewer'),
-      backgroundColor: Colors.black,
-      body: Stack(
-        children: [
-          Positioned.fill(
-            child: SafeArea(
-              child: Center(
-                child: FutureBuilder<void>(
-                  future: _initializeFuture,
-                  builder: (context, snapshot) {
-                    if (_error != null || snapshot.hasError) {
-                      return const _MediaLoadFailure(
-                        message: 'Failed to load video',
-                        icon: LucideIcons.videoOff,
+    return _EscToDismiss(
+      child: Scaffold(
+        key: const ValueKey('message-media-video-viewer'),
+        backgroundColor: Colors.black,
+        body: Stack(
+          children: [
+            Positioned.fill(
+              child: SafeArea(
+                child: Center(
+                  child: FutureBuilder<void>(
+                    future: _initializeFuture,
+                    builder: (context, snapshot) {
+                      if (_error != null || snapshot.hasError) {
+                        return const _MediaLoadFailure(
+                          message: 'Failed to load video',
+                          icon: LucideIcons.videoOff,
+                        );
+                      }
+
+                      if (!_controller.value.isInitialized) {
+                        return _VideoLoadingPoster(posterUrl: widget.posterUrl);
+                      }
+
+                      return Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          AspectRatio(
+                            aspectRatio: _controller.value.aspectRatio,
+                            child: VideoPlayer(_controller),
+                          ),
+                          const SizedBox(height: Grid.sm),
+                          _VideoTransportBar(controller: _controller),
+                        ],
                       );
-                    }
-
-                    if (!_controller.value.isInitialized) {
-                      return _VideoLoadingPoster(posterUrl: widget.posterUrl);
-                    }
-
-                    return Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        AspectRatio(
-                          aspectRatio: _controller.value.aspectRatio,
-                          child: VideoPlayer(_controller),
-                        ),
-                        const SizedBox(height: Grid.sm),
-                        _VideoTransportBar(controller: _controller),
-                      ],
-                    );
-                  },
+                    },
+                  ),
                 ),
               ),
             ),
-          ),
-          PositionedDirectional(
-            top: Grid.sm,
-            end: Grid.sm,
-            child: SafeArea(
-              child: DecoratedBox(
-                decoration: const BoxDecoration(
-                  color: Color.fromRGBO(0, 0, 0, 0.56),
-                  shape: BoxShape.circle,
-                ),
-                child: IconButton(
-                  key: const ValueKey('message-media-video-viewer-close'),
-                  onPressed: () => Navigator.of(context).maybePop(),
-                  tooltip: 'Close video viewer',
-                  icon: const Icon(LucideIcons.x, color: Colors.white),
+            PositionedDirectional(
+              top: Grid.sm,
+              end: Grid.sm,
+              child: SafeArea(
+                child: DecoratedBox(
+                  decoration: const BoxDecoration(
+                    color: Color.fromRGBO(0, 0, 0, 0.56),
+                    shape: BoxShape.circle,
+                  ),
+                  child: IconButton(
+                    key: const ValueKey('message-media-video-viewer-close'),
+                    onPressed: () => Navigator.of(context).maybePop(),
+                    tooltip: 'Close video viewer',
+                    icon: const Icon(LucideIcons.x, color: Colors.white),
+                  ),
                 ),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
+    );
+  }
+}
+
+/// Pops the hosting route when Esc is pressed on a hardware keyboard.
+///
+/// The media viewers are full-window pushed routes rather than dialogs, so
+/// Flutter's built-in dialog dismissal does not apply to them. [Focus] with
+/// `autofocus` keeps the binding live even though neither viewer has a
+/// focusable field.
+class _EscToDismiss extends StatelessWidget {
+  final Widget child;
+
+  const _EscToDismiss({required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    return CallbackShortcuts(
+      bindings: {
+        const SingleActivator(LogicalKeyboardKey.escape): () =>
+            Navigator.of(context).maybePop(),
+      },
+      child: Focus(autofocus: true, child: child),
     );
   }
 }
