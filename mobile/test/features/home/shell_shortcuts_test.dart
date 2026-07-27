@@ -10,6 +10,7 @@ import 'package:buzz/features/profile/user_status.dart';
 import 'package:buzz/features/profile/user_status_provider.dart';
 import 'package:buzz/features/search/search_page.dart';
 import 'package:buzz/features/search/search_provider.dart';
+import 'package:buzz/features/settings/settings_page.dart';
 import 'package:buzz/shared/shell/shell_state.dart';
 import 'package:buzz/shared/shell/shell_state_provider.dart';
 import 'package:buzz/shared/theme/theme.dart';
@@ -17,6 +18,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
+import 'package:package_info_plus/package_info_plus.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 Channel _channel(String id) => Channel(
   id: id,
@@ -33,6 +36,22 @@ Channel _channel(String id) => Channel(
 final _channels = [_channel('alpha'), _channel('beta'), _channel('gamma')];
 
 void main() {
+  late SharedPreferences prefs;
+
+  setUp(() async {
+    // The Cmd/Ctrl+, route builds the real settings page, which reads stored
+    // theme prefs and the package version off the platform.
+    SharedPreferences.setMockInitialValues({});
+    prefs = await SharedPreferences.getInstance();
+    PackageInfo.setMockInitialValues(
+      appName: 'buzz',
+      packageName: 'com.example.buzz',
+      version: '1.0.0',
+      buildNumber: '1',
+      buildSignature: '',
+    );
+  });
+
   void useWideSurface(WidgetTester tester) {
     tester.view.devicePixelRatio = 1.0;
     tester.view.physicalSize = const Size(1440, 900);
@@ -52,6 +71,7 @@ void main() {
         customEmojiPaletteProvider.overrideWith(
           () => _FakeCustomEmojiPaletteNotifier(),
         ),
+        savedPrefsProvider.overrideWithValue(prefs),
       ],
     );
     addTearDown(container.dispose);
@@ -109,16 +129,59 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  testWidgets('Cmd+K opens the search overlay only once', (tester) async {
+  /// Fires [key] twice under a held modifier **without pumping in between**.
+  ///
+  /// Both events are therefore delivered while primary focus is still on the
+  /// shell. Pumping first would install the pushed route and move focus into
+  /// its scope, where the second chord could never reach [ShellShortcuts] at
+  /// all — so the no-stack guard would appear to work even if deleted.
+  Future<void> pressChordTwiceInOneFrame(
+    WidgetTester tester,
+    LogicalKeyboardKey key, {
+    LogicalKeyboardKey modifier = LogicalKeyboardKey.meta,
+  }) async {
+    await tester.sendKeyDownEvent(modifier);
+    await tester.sendKeyEvent(key);
+    await tester.sendKeyEvent(key);
+    await tester.sendKeyUpEvent(modifier);
+    await tester.pumpAndSettle();
+  }
+
+  testWidgets('Cmd+K opens the search overlay', (tester) async {
     useWideSurface(tester);
     final container = createContainer();
     await pumpShortcuts(tester, container);
 
     await pressChord(tester, LogicalKeyboardKey.keyK);
-    expect(find.byType(SearchView), findsOneWidget);
 
-    await pressChord(tester, LogicalKeyboardKey.keyK);
     expect(find.byType(SearchView), findsOneWidget);
+  });
+
+  testWidgets('a repeated Cmd+K does not stack a second search overlay', (
+    tester,
+  ) async {
+    useWideSurface(tester);
+    final container = createContainer();
+    await pumpShortcuts(tester, container);
+
+    await pressChordTwiceInOneFrame(tester, LogicalKeyboardKey.keyK);
+
+    expect(find.byType(SearchView), findsOneWidget);
+  });
+
+  testWidgets('Cmd+, pushes settings exactly once across repeated presses', (
+    tester,
+  ) async {
+    useWideSurface(tester);
+    final container = createContainer();
+    await pumpShortcuts(tester, container);
+
+    await pressChordTwiceInOneFrame(tester, LogicalKeyboardKey.comma);
+
+    // skipOffstage: false is load-bearing — a second settings route would
+    // push the first one offstage, so the default finder would report one
+    // match either way and the guard would go untested.
+    expect(find.byType(SettingsPage, skipOffstage: false), findsOneWidget);
   });
 
   testWidgets('Esc closes an open side panel', (tester) async {

@@ -1287,10 +1287,12 @@ void main() {
     });
 
     group('dropped files', () {
+      /// Drops [fileNames] in a single gesture — drag-and-drop is inherently
+      /// multi-file, so the list form is the realistic shape.
       Future<void> pumpWithDrop(
         WidgetTester tester, {
         required MediaUploadService uploadService,
-        required String fileName,
+        required List<String> fileNames,
       }) async {
         await tester.pumpWidget(
           _buildComposeBar(
@@ -1298,7 +1300,8 @@ void main() {
             extraOverrides: [
               attachmentDropBackendProvider.overrideWithValue(
                 _FakeDropBackend([
-                  DroppedFileData(name: fileName, bytes: _pngBytes),
+                  for (final name in fileNames)
+                    DroppedFileData(name: name, bytes: _pngBytes),
                 ]),
               ),
             ],
@@ -1321,7 +1324,7 @@ void main() {
       ) async {
         await pumpWithDrop(
           tester,
-          fileName: 'shot.png',
+          fileNames: ['shot.png'],
           uploadService: MediaUploadService(
             baseUrl: 'https://relay.example',
             nsec: nostr.Keys.generate().nsec,
@@ -1351,7 +1354,7 @@ void main() {
       ) async {
         await pumpWithDrop(
           tester,
-          fileName: 'notes.doc',
+          fileNames: ['notes.doc'],
           uploadService: MediaUploadService(
             baseUrl: 'https://relay.example',
             nsec: nostr.Keys.generate().nsec,
@@ -1365,6 +1368,39 @@ void main() {
 
         expect(find.textContaining('unsupported file type'), findsOneWidget);
         expect(find.byTooltip('Remove attachment'), findsNothing);
+      });
+
+      testWidgets('a later file in the drop does not erase an earlier error', (
+        tester,
+      ) async {
+        await pumpWithDrop(
+          tester,
+          // The bad file comes first, so its error has to survive the good
+          // file's upload clearing the error state.
+          fileNames: ['notes.doc', 'shot.png'],
+          uploadService: MediaUploadService(
+            baseUrl: 'https://relay.example',
+            nsec: nostr.Keys.generate().nsec,
+            httpClient: http_testing.MockClient((request) async {
+              return http.Response(
+                jsonEncode({
+                  'url': 'https://relay.example/media/test.png',
+                  'sha256':
+                      '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+                  'size': 16,
+                  'type': 'image/png',
+                  'uploaded': 1,
+                }),
+                200,
+              );
+            }),
+            pickGalleryVideo: () async => null,
+            pickGalleryImage: () async => null,
+          ),
+        );
+
+        expect(find.textContaining('unsupported file type'), findsOneWidget);
+        expect(find.byTooltip('Remove attachment'), findsOneWidget);
       });
     });
   });

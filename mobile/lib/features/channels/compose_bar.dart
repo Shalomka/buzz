@@ -59,8 +59,18 @@ const _droppedFileMimeTypes = <String, String>{
 /// to the field so it inserts a newline. This applies at every width —
 /// external keyboards on phones emit key events too — while touch and
 /// soft-keyboard input keep their existing behavior.
-KeyEventResult _handleComposerKey(KeyEvent event, VoidCallback send) {
+///
+/// While an IME composition is in flight (CJK and similar), Enter belongs to
+/// the IME: it commits the in-progress candidate. Consuming it here would send
+/// the still-uncommitted text instead, so [controller]'s composing range is
+/// checked first and the event falls through untouched.
+KeyEventResult _handleComposerKey(
+  KeyEvent event,
+  TextEditingController controller,
+  VoidCallback send,
+) {
   if (event is! KeyDownEvent) return KeyEventResult.ignored;
+  if (controller.value.composing.isValid) return KeyEventResult.ignored;
   final isEnter =
       event.logicalKey == LogicalKeyboardKey.enter ||
       event.logicalKey == LogicalKeyboardKey.numpadEnter;
@@ -480,7 +490,13 @@ class ComposeBar extends HookConsumerWidget {
 
     /// Uploads files handed over by an OS drag-and-drop gesture, reusing the
     /// picker pipeline so attachments, progress, and errors behave the same.
+    ///
+    /// A drop is inherently multi-file and [pickAndUpload] clears
+    /// [uploadError] as each file starts, so per-file failures are collected
+    /// here and reported together once the batch finishes — otherwise the
+    /// last file silently erases every earlier error.
     Future<void> uploadDroppedFiles(List<DroppedFileData> files) async {
+      final failures = <String>[];
       for (final file in files) {
         await pickAndUpload(() async {
           final mimeType = _mimeTypeForFileName(file.name);
@@ -491,6 +507,10 @@ class ComposeBar extends HookConsumerWidget {
               .read(mediaUploadServiceProvider)
               .uploadBytes(file.bytes, mimeType: mimeType);
         });
+        if (uploadError.value case final error?) failures.add(error);
+      }
+      if (failures.isNotEmpty && context.mounted) {
+        uploadError.value = failures.join('\n');
       }
     }
 
@@ -686,7 +706,8 @@ class ComposeBar extends HookConsumerWidget {
                 Focus(
                   canRequestFocus: false,
                   skipTraversal: true,
-                  onKeyEvent: (_, event) => _handleComposerKey(event, send),
+                  onKeyEvent: (_, event) =>
+                      _handleComposerKey(event, controller, send),
                   child: TextField(
                     controller: controller,
                     focusNode: focusNode,

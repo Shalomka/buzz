@@ -24,7 +24,12 @@ final _channel = Channel(
   isMember: true,
 );
 
+/// Queries the overlay's field pushed into [SearchNotifier.search].
+final _searchedQueries = <String>[];
+
 void main() {
+  setUp(_searchedQueries.clear);
+
   void useWideSurface(WidgetTester tester) {
     tester.view.devicePixelRatio = 1.0;
     tester.view.physicalSize = const Size(1440, 900);
@@ -83,6 +88,23 @@ void main() {
     expect(find.byType(SearchInputField), findsOneWidget);
   });
 
+  testWidgets('the query field takes focus so typing needs no click first', (
+    tester,
+  ) async {
+    useWideSurface(tester);
+    final container = createContainer();
+
+    await pumpOverlay(tester, container);
+
+    // Type through the platform text-input channel rather than
+    // tester.enterText, which would focus the field itself and hide a
+    // missing autofocus.
+    tester.testTextInput.enterText('design');
+    await tester.pump();
+
+    expect(_searchedQueries, ['design']);
+  });
+
   testWidgets('choosing a channel hit closes the overlay and selects it', (
     tester,
   ) async {
@@ -105,7 +127,7 @@ class _FakeSearchNotifier extends SearchNotifier {
   SearchState build() => SearchState(query: 'gen', channelResults: [_channel]);
 
   @override
-  Future<void> search(String query) async {}
+  Future<void> search(String query) async => _searchedQueries.add(query);
 
   @override
   void clear() {}

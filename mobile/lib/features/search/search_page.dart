@@ -64,7 +64,18 @@ class SearchInputField extends ConsumerWidget {
   /// Controller for the query text, owned by the hosting surface.
   final TextEditingController controller;
 
-  const SearchInputField({super.key, required this.controller});
+  /// Whether the field grabs focus as soon as it is shown.
+  ///
+  /// Off by default so [SearchPage] keeps its current behavior. The overlay
+  /// opts in: it is reached by a keyboard shortcut, so the caller's hands are
+  /// already on the keys and typing must land in the field immediately.
+  final bool autofocus;
+
+  const SearchInputField({
+    super.key,
+    required this.controller,
+    this.autofocus = false,
+  });
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -77,6 +88,7 @@ class SearchInputField extends ConsumerWidget {
       ),
       child: TextField(
         controller: controller,
+        autofocus: autofocus,
         decoration: InputDecoration(
           hintText: 'Search messages, channels, people\u2026',
           hintStyle: context.textTheme.bodyMedium?.copyWith(
@@ -432,7 +444,22 @@ class _MessageTile extends ConsumerWidget {
     if (channel == null) return;
 
     if (hit.kind == 45001) {
-      // Forum posts keep their full-window route at every width.
+      // At expanded widths the hit lives inside the search overlay dialog, so
+      // dismiss it first and hand the post to the shell's side panel — pushing
+      // a full-window route would stack it over the still-open overlay.
+      //
+      // The panel body renders against the workspace's channel, so the hit's
+      // channel has to be selected first; selectChannel also clears any
+      // forum panel, hence the ordering.
+      if (isExpandedLayout(context)) {
+        final navigator = Navigator.of(context);
+        if (navigator.canPop()) navigator.pop();
+        ref.read(shellStateProvider.notifier)
+          ..selectChannel(channel.id)
+          ..openForumThreadPanel(hit.eventId);
+        return;
+      }
+      // Narrow keeps its full-window route.
       Navigator.of(context).push(
         MaterialPageRoute<void>(
           builder: (_) => ForumThreadPage(

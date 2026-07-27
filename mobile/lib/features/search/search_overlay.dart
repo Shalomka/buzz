@@ -42,7 +42,7 @@ class _SearchOverlay extends HookConsumerWidget {
               Grid.xs,
               Grid.xxs,
             ),
-            child: SearchInputField(controller: controller),
+            child: SearchInputField(controller: controller, autofocus: true),
           ),
           const Expanded(child: SearchView()),
         ],
