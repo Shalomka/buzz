@@ -4,16 +4,16 @@ import 'package:buzz/shared/community/community.dart';
 import 'package:buzz/shared/community/community_provider.dart';
 import 'package:buzz/shared/community/community_storage.dart';
 
-import 'community_storage_test.dart';
+import '../../helpers/fake_key_value_store.dart';
 
 void main() {
-  late FakeSecureStorage fakeSecure;
+  late FakeKeyValueStore fakeStore;
   late CommunityStorage communityStorage;
   late ProviderContainer container;
 
   setUp(() {
-    fakeSecure = FakeSecureStorage();
-    communityStorage = CommunityStorage(secure: fakeSecure);
+    fakeStore = FakeKeyValueStore();
+    communityStorage = CommunityStorage(store: fakeStore);
   });
 
   tearDown(() => container.dispose());

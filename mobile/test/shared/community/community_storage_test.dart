@@ -1,99 +1,18 @@
 import 'dart:convert';
 
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:buzz/shared/community/community.dart';
 import 'package:buzz/shared/community/community_storage.dart';
 
-/// In-memory fake that extends Fake to satisfy all FlutterSecureStorage
-/// interface methods, but implements the core read/write/delete with real
-/// in-memory logic.
-class FakeSecureStorage extends Fake implements FlutterSecureStorage {
-  final Map<String, String> _data = {};
-
-  @override
-  Future<String?> read({
-    required String key,
-    AppleOptions? iOptions,
-    AndroidOptions? aOptions,
-    LinuxOptions? lOptions,
-    WebOptions? webOptions,
-    AppleOptions? mOptions,
-    WindowsOptions? wOptions,
-  }) async => _data[key];
-
-  @override
-  Future<void> write({
-    required String key,
-    required String? value,
-    AppleOptions? iOptions,
-    AndroidOptions? aOptions,
-    LinuxOptions? lOptions,
-    WebOptions? webOptions,
-    AppleOptions? mOptions,
-    WindowsOptions? wOptions,
-  }) async {
-    if (value != null) {
-      _data[key] = value;
-    } else {
-      _data.remove(key);
-    }
-  }
-
-  @override
-  Future<void> delete({
-    required String key,
-    AppleOptions? iOptions,
-    AndroidOptions? aOptions,
-    LinuxOptions? lOptions,
-    WebOptions? webOptions,
-    AppleOptions? mOptions,
-    WindowsOptions? wOptions,
-  }) async => _data.remove(key);
-
-  @override
-  Future<Map<String, String>> readAll({
-    AppleOptions? iOptions,
-    AndroidOptions? aOptions,
-    LinuxOptions? lOptions,
-    WebOptions? webOptions,
-    AppleOptions? mOptions,
-    WindowsOptions? wOptions,
-  }) async => Map.from(_data);
-
-  @override
-  Future<void> deleteAll({
-    AppleOptions? iOptions,
-    AndroidOptions? aOptions,
-    LinuxOptions? lOptions,
-    WebOptions? webOptions,
-    AppleOptions? mOptions,
-    WindowsOptions? wOptions,
-  }) async => _data.clear();
-
-  @override
-  Future<bool> containsKey({
-    required String key,
-    AppleOptions? iOptions,
-    AndroidOptions? aOptions,
-    LinuxOptions? lOptions,
-    WebOptions? webOptions,
-    AppleOptions? mOptions,
-    WindowsOptions? wOptions,
-  }) async => _data.containsKey(key);
-
-  // Convenience for setting up test data.
-  String? operator [](String key) => _data[key];
-  void operator []=(String key, String value) => _data[key] = value;
-}
+import '../../helpers/fake_key_value_store.dart';
 
 void main() {
-  late FakeSecureStorage fakeSecure;
+  late FakeKeyValueStore fakeStore;
   late CommunityStorage storage;
 
   setUp(() {
-    fakeSecure = FakeSecureStorage();
-    storage = CommunityStorage(secure: fakeSecure);
+    fakeStore = FakeKeyValueStore();
+    storage = CommunityStorage(store: fakeStore);
   });
 
   group('CommunityStorage', () {
@@ -171,23 +90,23 @@ void main() {
           name: 'Legacy',
           relayUrl: 'https://legacy.example.com',
         );
-        fakeSecure['buzz_workspaces'] = jsonEncode([legacy.toJson()]);
-        fakeSecure['buzz_active_workspace_id'] = legacy.id;
+        fakeStore['buzz_workspaces'] = jsonEncode([legacy.toJson()]);
+        fakeStore['buzz_active_workspace_id'] = legacy.id;
 
         final loaded = await storage.loadAll();
 
         expect(loaded.single.id, legacy.id);
         expect(await storage.loadActiveId(), legacy.id);
-        expect(fakeSecure['buzz_communities'], isNotNull);
-        expect(fakeSecure['buzz_workspaces'], isNull);
-        expect(fakeSecure['buzz_active_workspace_id'], isNull);
+        expect(fakeStore['buzz_communities'], isNotNull);
+        expect(fakeStore['buzz_workspaces'], isNull);
+        expect(fakeStore['buzz_active_workspace_id'], isNull);
       });
 
       test('migrates legacy keys to community on first load', () async {
-        fakeSecure['buzz_relay_url'] = 'https://legacy.example.com';
-        fakeSecure['buzz_token'] = 'legacy_token';
-        fakeSecure['buzz_pubkey'] = 'legacy_pub';
-        fakeSecure['buzz_nsec'] = 'legacy_nsec';
+        fakeStore['buzz_relay_url'] = 'https://legacy.example.com';
+        fakeStore['buzz_token'] = 'legacy_token';
+        fakeStore['buzz_pubkey'] = 'legacy_pub';
+        fakeStore['buzz_nsec'] = 'legacy_nsec';
 
         final loaded = await storage.loadAll();
 
@@ -198,10 +117,10 @@ void main() {
         expect(loaded.first.name, isNotEmpty);
 
         // Legacy keys should be deleted.
-        expect(fakeSecure['buzz_relay_url'], isNull);
-        expect(fakeSecure['buzz_token'], isNull);
-        expect(fakeSecure['buzz_pubkey'], isNull);
-        expect(fakeSecure['buzz_nsec'], isNull);
+        expect(fakeStore['buzz_relay_url'], isNull);
+        expect(fakeStore['buzz_token'], isNull);
+        expect(fakeStore['buzz_pubkey'], isNull);
+        expect(fakeStore['buzz_nsec'], isNull);
 
         // Active ID should be set.
         final activeId = await storage.loadActiveId();
@@ -214,8 +133,8 @@ void main() {
       });
 
       test('does not re-migrate after first load', () async {
-        fakeSecure['buzz_relay_url'] = 'https://legacy.example.com';
-        fakeSecure['buzz_token'] = 'legacy_token';
+        fakeStore['buzz_relay_url'] = 'https://legacy.example.com';
+        fakeStore['buzz_token'] = 'legacy_token';
 
         final first = await storage.loadAll();
         expect(first, hasLength(1));
@@ -226,8 +145,8 @@ void main() {
       });
 
       test('migration generates name from localhost URL', () async {
-        fakeSecure['buzz_relay_url'] = 'http://localhost:3000';
-        fakeSecure['buzz_token'] = 'tok';
+        fakeStore['buzz_relay_url'] = 'http://localhost:3000';
+        fakeStore['buzz_token'] = 'tok';
 
         final loaded = await storage.loadAll();
         expect(loaded.first.name, 'Local Dev');
