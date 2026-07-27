@@ -412,22 +412,26 @@ class _ThreadMessage extends ConsumerWidget {
       }
     }
 
+    void openActions() => showMessageActions(
+      context: context,
+      ref: ref,
+      message: message,
+      channelId: channelId,
+      canManageMessage:
+          currentPubkey?.toLowerCase() == pk ||
+          (profile?.ownerPubkey != null &&
+              profile?.ownerPubkey == currentPubkey?.toLowerCase()),
+      allMessages: allMessages,
+      currentPubkey: currentPubkey,
+      isMember: isMember,
+      isArchived: isArchived,
+    );
+
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
-      onLongPress: () => showMessageActions(
-        context: context,
-        ref: ref,
-        message: message,
-        channelId: channelId,
-        canManageMessage:
-            currentPubkey?.toLowerCase() == pk ||
-            (profile?.ownerPubkey != null &&
-                profile?.ownerPubkey == currentPubkey?.toLowerCase()),
-        allMessages: allMessages,
-        currentPubkey: currentPubkey,
-        isMember: isMember,
-        isArchived: isArchived,
-      ),
+      onLongPress: openActions,
+      // Right-click opens the same actions surface as long-press (desktop).
+      onSecondaryTapUp: (_) => openActions(),
       child: Padding(
         padding: EdgeInsets.only(top: showAuthor ? Grid.xs : Grid.quarter),
         child: Row(

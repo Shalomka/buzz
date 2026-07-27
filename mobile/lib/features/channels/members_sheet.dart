@@ -4,6 +4,7 @@ import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../shared/theme/theme.dart';
+import '../../shared/widgets/adaptive_modal.dart';
 import '../../shared/widgets/avatar_image.dart';
 import '../profile/user_cache_provider.dart';
 import '../profile/user_profile.dart';
@@ -49,8 +50,8 @@ class MembersSheet extends HookConsumerWidget {
       navigator.pop();
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!navigator.mounted) return;
-        showModalBottomSheet<void>(
-          context: navigator.context,
+        showAdaptiveModal<void>(
+          navigator.context,
           isScrollControlled: true,
           showDragHandle: true,
           builder: (_) => AgentActivitySheet(
@@ -299,8 +300,8 @@ class _MemberTile extends ConsumerWidget {
               ? profile!.displayName!.trim()
               : member.labelFor(currentPubkey));
     final canChangeRole = showManagementActions && !member.isBot;
-    showModalBottomSheet<void>(
-      context: context,
+    showAdaptiveModal<void>(
+      context,
       showDragHandle: true,
       builder: (sheetContext) => SafeArea(
         child: Column(

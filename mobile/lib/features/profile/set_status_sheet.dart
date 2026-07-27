@@ -3,6 +3,7 @@ import 'package:flutter_hooks/flutter_hooks.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 
 import '../../shared/theme/theme.dart';
+import '../../shared/widgets/adaptive_modal.dart';
 import '../custom_emoji/custom_emoji.dart';
 import '../custom_emoji/custom_emoji_provider.dart';
 import '../custom_emoji/custom_emoji_render.dart';
@@ -30,8 +31,8 @@ const _presets = [
 ];
 
 void showSetStatusSheet(BuildContext context, {UserStatus? currentStatus}) {
-  showModalBottomSheet<void>(
-    context: context,
+  showAdaptiveModal<void>(
+    context,
     isScrollControlled: true,
     showDragHandle: true,
     builder: (_) => _SetStatusSheet(currentStatus: currentStatus),

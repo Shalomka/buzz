@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
+import 'package:hooks_riverpod/misc.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart' as http_testing;
 import 'package:image_picker/image_picker.dart';
@@ -20,6 +21,7 @@ import 'package:buzz/features/channels/mentions/mention_candidates.dart';
 import 'package:buzz/features/channels/mentions/mention_candidates_provider.dart';
 import 'package:buzz/shared/relay/relay.dart';
 import 'package:buzz/shared/theme/theme.dart';
+import 'package:buzz/shared/widgets/attachment_drop_region.dart';
 
 final _pngBytes = Uint8List.fromList([
   0x89,
@@ -119,9 +121,11 @@ Widget _buildComposeBar({
   List<Channel> channels = const <Channel>[],
   String? currentPubkey,
   bool? supportsShowingSystemContextMenu,
+  List<Override> extraOverrides = const <Override>[],
 }) {
   return ProviderScope(
     overrides: [
+      ...extraOverrides,
       mediaUploadServiceProvider.overrideWithValue(uploadService),
       currentPubkeyProvider.overrideWith((ref) => currentPubkey),
       channelMembersProvider(
@@ -193,6 +197,31 @@ class _RecordingRelaySocket extends RelaySocket {
 
   @override
   void dispose() {}
+}
+
+/// Stand-in for the Phase 0 drop backend: a button that hands the composer a
+/// fixed file list, standing in for the OS drop gesture.
+class _FakeDropBackend implements AttachmentDropBackend {
+  final List<DroppedFileData> files;
+
+  const _FakeDropBackend(this.files);
+
+  @override
+  Widget wrap({
+    required Widget child,
+    required ValueChanged<List<DroppedFileData>> onDropped,
+  }) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        TextButton(
+          onPressed: () => onDropped(files),
+          child: const Text('drop files'),
+        ),
+        child,
+      ],
+    );
+  }
 }
 
 class _FakeChannelsNotifier extends ChannelsNotifier {
@@ -1183,6 +1212,160 @@ void main() {
       } finally {
         await tempDir.delete(recursive: true);
       }
+    });
+
+    group('hardware keyboard', () {
+      MediaUploadService buildIdleUploadService() => MediaUploadService(
+        baseUrl: 'https://relay.example',
+        nsec: nostr.Keys.generate().nsec,
+        httpClient: http_testing.MockClient(
+          (request) async => http.Response('{}', 500),
+        ),
+        pickGalleryVideo: () async => null,
+        pickGalleryImage: () async => null,
+      );
+
+      Future<List<String>> typeThenPress(
+        WidgetTester tester,
+        LogicalKeyboardKey key, {
+        bool shift = false,
+      }) async {
+        final sent = <String>[];
+        await tester.pumpWidget(
+          _buildComposeBar(
+            uploadService: buildIdleUploadService(),
+            onSend:
+                (
+                  content,
+                  mentionPubkeys, {
+                  mediaTags = const <List<String>>[],
+                }) async {
+                  sent.add(content);
+                },
+          ),
+        );
+
+        await tester.enterText(find.byType(TextField), 'hello');
+        await tester.pump();
+
+        if (shift) await tester.sendKeyDownEvent(LogicalKeyboardKey.shift);
+        await tester.sendKeyEvent(key);
+        if (shift) await tester.sendKeyUpEvent(LogicalKeyboardKey.shift);
+        await tester.pumpAndSettle();
+
+        return sent;
+      }
+
+      testWidgets('Enter sends the message and clears the field', (
+        tester,
+      ) async {
+        final sent = await typeThenPress(tester, LogicalKeyboardKey.enter);
+
+        expect(sent, ['hello']);
+        expect(find.text('hello'), findsNothing);
+      });
+
+      testWidgets('numpad Enter sends the message', (tester) async {
+        final sent = await typeThenPress(
+          tester,
+          LogicalKeyboardKey.numpadEnter,
+        );
+
+        expect(sent, ['hello']);
+      });
+
+      testWidgets('Shift+Enter does not send', (tester) async {
+        final sent = await typeThenPress(
+          tester,
+          LogicalKeyboardKey.enter,
+          shift: true,
+        );
+
+        expect(sent, isEmpty);
+        expect(find.text('hello'), findsOneWidget);
+      });
+    });
+
+    group('dropped files', () {
+      Future<void> pumpWithDrop(
+        WidgetTester tester, {
+        required MediaUploadService uploadService,
+        required String fileName,
+      }) async {
+        await tester.pumpWidget(
+          _buildComposeBar(
+            uploadService: uploadService,
+            extraOverrides: [
+              attachmentDropBackendProvider.overrideWithValue(
+                _FakeDropBackend([
+                  DroppedFileData(name: fileName, bytes: _pngBytes),
+                ]),
+              ),
+            ],
+            onSend:
+                (
+                  content,
+                  mentionPubkeys, {
+                  mediaTags = const <List<String>>[],
+                }) async {},
+          ),
+        );
+        await tester.tap(find.text('drop files'));
+        for (var i = 0; i < 10; i++) {
+          await tester.pump(const Duration(milliseconds: 100));
+        }
+      }
+
+      testWidgets('a dropped image lands in the attachment strip', (
+        tester,
+      ) async {
+        await pumpWithDrop(
+          tester,
+          fileName: 'shot.png',
+          uploadService: MediaUploadService(
+            baseUrl: 'https://relay.example',
+            nsec: nostr.Keys.generate().nsec,
+            httpClient: http_testing.MockClient((request) async {
+              return http.Response(
+                jsonEncode({
+                  'url': 'https://relay.example/media/test.png',
+                  'sha256':
+                      '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+                  'size': 16,
+                  'type': 'image/png',
+                  'uploaded': 1,
+                }),
+                200,
+              );
+            }),
+            pickGalleryVideo: () async => null,
+            pickGalleryImage: () async => null,
+          ),
+        );
+
+        expect(find.byTooltip('Remove attachment'), findsOneWidget);
+      });
+
+      testWidgets('an unsupported extension surfaces an upload error', (
+        tester,
+      ) async {
+        await pumpWithDrop(
+          tester,
+          fileName: 'notes.doc',
+          uploadService: MediaUploadService(
+            baseUrl: 'https://relay.example',
+            nsec: nostr.Keys.generate().nsec,
+            httpClient: http_testing.MockClient(
+              (request) async => http.Response('{}', 500),
+            ),
+            pickGalleryVideo: () async => null,
+            pickGalleryImage: () async => null,
+          ),
+        );
+
+        expect(find.textContaining('unsupported file type'), findsOneWidget);
+        expect(find.byTooltip('Remove attachment'), findsNothing);
+      });
     });
   });
 

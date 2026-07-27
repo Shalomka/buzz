@@ -148,8 +148,8 @@ class ChannelDetailView extends HookConsumerWidget {
           if (!resolvedChannel.isDm)
             IconButton(
               onPressed: () async {
-                final shouldClose = await showModalBottomSheet<bool>(
-                  context: context,
+                final shouldClose = await showAdaptiveModal<bool>(
+                  context,
                   isScrollControlled: true,
                   showDragHandle: true,
                   constraints: BoxConstraints(
