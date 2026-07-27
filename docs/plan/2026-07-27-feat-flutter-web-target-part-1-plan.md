@@ -321,12 +321,32 @@ From `CLAUDE.md` (§ Mobile App) and observed repo practice:
 
 Android/iOS ship today. Part 1 is designed to be provably inert on them:
 
-- The only `lib/` **addition** is an unreferenced provider. The two authorized
-  amendments edit existing files but are behaviour-preserving on native: the
-  deleted `co64` guard could never fire on a 64-bit signed `int`, and the
-  `Material` wrapper changes no rendered pixels (it only gives the existing
-  `ListTile`s a surface to paint splashes on, which the framework was already
-  asserting about).
+- The only `lib/` **addition** is an unreferenced provider. Of the two
+  authorized amendments, the `co64` one is strictly inert on native — the
+  deleted guard could never fire on a 64-bit signed `int`.
+- The `Material` wrapper amendment is **not** pixel-neutral on Android/iOS. It
+  does not change layout, elevation, shape, or semantics, but it has three
+  intended, benign consequences that must be stated rather than denied:
+  1. **Ink splashes on suggestion tiles are now visible.** `ListTile` paints
+     splashes onto the nearest `Material` ancestor; previously a coloured
+     `DecoratedBox` sat in between and hid them. The framework diagnostic that
+     flagged this (`ListTile._debugCheckBackgroundIsHidden`) is `assert`-gated,
+     so release builds never errored — users simply got no ripple when tapping
+     a mention or channel suggestion. This was therefore debug-only *breakage*
+     with a real release-mode *consequence*, and restoring the ripple is the
+     point of the fix.
+  2. `Material` installs an `AnimatedDefaultTextStyle(theme.textTheme.bodyMedium)`.
+     Verified inert here: these widgets render inline in a `Column` inside the
+     `Scaffold` (not an `Overlay`), so the ambient `DefaultTextStyle` was
+     already `bodyMedium`, and every `Text` in the subtree passes an explicit
+     `context.textTheme.*` style.
+  3. `Material` adds `_InkFeatures(absorbHitTest: true)` and tweens surface
+     colour over `kThemeChangeDuration` (200 ms), so a light↔dark switch now
+     cross-fades the popup instead of snapping.
+- Because that `Material` is an **opaque** fill sitting inside the `Container`'s
+  clip, both suggestion popups use `clipBehavior: Clip.antiAlias` (not
+  `Clip.hardEdge`) so the `Radii.dialog` top corners — and splashes reaching
+  them — stay antialiased.
 - No dependency, `pubspec`, `android/`, or `ios/` changes at all.
 - Adding `mobile/web/` does not change the Android or iOS build inputs.
 - The 60 existing test files are the regression gate. **None may be weakened,

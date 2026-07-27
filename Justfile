@@ -591,7 +591,7 @@ mobile-build-android:
 
 # Compile the Flutter web build (release)
 mobile-build-web:
-    unset GIT_DIR GIT_WORK_TREE; cd {{mobile_dir}} && flutter build web --release
+    unset GIT_DIR GIT_WORK_TREE; cd {{mobile_dir}} && flutter build web --release --no-pub
 
 # Run the mobile app on iOS simulator
 mobile-dev:

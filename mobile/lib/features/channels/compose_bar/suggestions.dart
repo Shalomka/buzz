@@ -19,7 +19,11 @@ class _MentionSuggestions extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       constraints: const BoxConstraints(maxHeight: 240),
-      clipBehavior: Clip.hardEdge,
+      // [Clip.antiAlias], not [Clip.hardEdge]: [Container] applies its clip
+      // *inside* the [DecoratedBox], so the opaque [Material] fill below is
+      // what the rounded top corners cut through. A hard edge would alias
+      // them (and any ink splash reaching them).
+      clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
         borderRadius: const BorderRadius.vertical(
           top: Radius.circular(Radii.dialog),
@@ -179,7 +183,11 @@ class _ChannelSuggestions extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       constraints: const BoxConstraints(maxHeight: 240),
-      clipBehavior: Clip.hardEdge,
+      // [Clip.antiAlias], not [Clip.hardEdge]: [Container] applies its clip
+      // *inside* the [DecoratedBox], so the opaque [Material] fill below is
+      // what the rounded top corners cut through. A hard edge would alias
+      // them (and any ink splash reaching them).
+      clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
         borderRadius: const BorderRadius.vertical(
           top: Radius.circular(Radii.dialog),

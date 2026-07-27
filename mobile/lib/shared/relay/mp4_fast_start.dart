@@ -1,3 +1,13 @@
+/// MP4 "fast start" rewriting — **native-only at runtime**.
+///
+/// This library is compiled for the web target but cannot be *used* there:
+/// `dart:io` `File`/`RandomAccessFile` and `ByteData.getUint64`/`setUint64`
+/// all throw `UnsupportedError` under dart2js. Part 1 of the web target only
+/// removed a `0x7fffffffffffffff` literal that was a hard dart2js *compile*
+/// error; it did not make this code work in a browser. Callers must keep it
+/// behind a native-platform check.
+library;
+
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';

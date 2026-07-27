@@ -1214,6 +1214,118 @@ void main() {
       }
     });
 
+    group('suggestions surface', () {
+      MediaUploadService buildSuggestionsUploadService() => MediaUploadService(
+        baseUrl: 'https://relay.example',
+        nsec: nostr.Keys.generate().nsec,
+        pickGalleryImage: () async => null,
+        pickGalleryVideo: () async => null,
+      );
+
+      /// Asserts the popup around [label] paints on its own [Material] and
+      /// that the enclosing [Container] clips with antialiasing.
+      ///
+      /// Both invariants are load-bearing: [ListTile] paints its background
+      /// and ink splashes onto the nearest [Material] ancestor, so the surface
+      /// colour must live on a [Material] rather than the [Container]'s
+      /// decoration — and because that [Material] is an *opaque* fill sitting
+      /// inside the [Container]'s clip, a [Clip.hardEdge] clip would alias the
+      /// rounded top corners.
+      void expectAntialiasedMaterialSurface(WidgetTester tester, Finder label) {
+        final listView = find.ancestor(
+          of: label,
+          matching: find.byType(ListView),
+        );
+        expect(listView, findsOneWidget);
+
+        final materials = find.ancestor(
+          of: listView,
+          matching: find.byType(Material),
+        );
+        expect(materials, findsWidgets);
+        expect(
+          tester.widget<Material>(materials.first).color,
+          AppTheme.light().colorScheme.surfaceContainerHighest,
+        );
+
+        final containers = find.ancestor(
+          of: materials.first,
+          matching: find.byType(Container),
+        );
+        expect(containers, findsWidgets);
+        final container = tester.widget<Container>(containers.first);
+        expect(container.clipBehavior, Clip.antiAlias);
+
+        // The surface colour must not move back onto the decoration — that is
+        // exactly what hid the ink splashes.
+        expect((container.decoration as BoxDecoration?)?.color, isNull);
+      }
+
+      testWidgets(
+        'mention suggestions paint on an antialiased Material surface',
+        (tester) async {
+          await tester.pumpWidget(
+            _buildComposeBar(
+              uploadService: buildSuggestionsUploadService(),
+              relayAgents: [
+                AgentDirectoryEntry(
+                  pubkey: 'e' * 64,
+                  displayName: 'Helper Bot',
+                  respondTo: 'anyone',
+                  channelIds: const ['channel-1'],
+                ),
+              ],
+              channels: [_makeCurrentChannel()],
+              onSend:
+                  (
+                    content,
+                    mentionPubkeys, {
+                    mediaTags = const <List<String>>[],
+                  }) async {},
+            ),
+          );
+
+          // A bare '@' keeps the query empty, so the debounced global user
+          // search short-circuits instead of leaving a pending timer — this
+          // test is about the popup's surface, not the search.
+          await tester.enterText(find.byType(TextField), '@');
+          await tester.pumpAndSettle();
+
+          final label = find.text('Helper Bot');
+          expect(label, findsOneWidget);
+          expectAntialiasedMaterialSurface(tester, label);
+        },
+      );
+
+      testWidgets(
+        'channel suggestions paint on an antialiased Material surface',
+        (tester) async {
+          await tester.pumpWidget(
+            _buildComposeBar(
+              uploadService: buildSuggestionsUploadService(),
+              channels: [
+                _makeCurrentChannel(),
+                _makeChannel(name: 'general', channelType: 'stream'),
+              ],
+              onSend:
+                  (
+                    content,
+                    mentionPubkeys, {
+                    mediaTags = const <List<String>>[],
+                  }) async {},
+            ),
+          );
+
+          await tester.enterText(find.byType(TextField), '#gen');
+          await tester.pumpAndSettle();
+
+          final label = find.text('#general');
+          expect(label, findsOneWidget);
+          expectAntialiasedMaterialSurface(tester, label);
+        },
+      );
+    });
+
     group('hardware keyboard', () {
       MediaUploadService buildIdleUploadService() => MediaUploadService(
         baseUrl: 'https://relay.example',
