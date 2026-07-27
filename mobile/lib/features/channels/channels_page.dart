@@ -7,8 +7,11 @@ import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../shared/auth/auth.dart';
+import '../../shared/layout/breakpoints.dart';
 import '../../shared/relay/relay.dart';
+import '../../shared/shell/shell_state_provider.dart';
 import '../../shared/theme/theme.dart';
+import '../../shared/widgets/adaptive_modal.dart';
 import '../../shared/widgets/avatar_image.dart';
 import '../../shared/widgets/frosted_app_bar.dart';
 import '../../shared/widgets/frosted_scaffold.dart';
@@ -24,6 +27,7 @@ import '../pairing/pairing_page.dart';
 import '../pairing/pairing_provider.dart';
 import 'channel.dart';
 import 'channel_detail_page.dart';
+import 'channel_list_order.dart';
 import 'channel_management_provider.dart';
 import 'dm_channel_labels.dart';
 import 'ephemeral_channel_display.dart';
@@ -158,6 +162,10 @@ class ChannelsPage extends HookConsumerWidget {
 
     Future<void> openChannel(Channel channel) async {
       if (!context.mounted) return;
+      if (isExpandedLayout(context)) {
+        ref.read(shellStateProvider.notifier).selectChannel(channel.id);
+        return;
+      }
       await Navigator.of(context).push(
         MaterialPageRoute<void>(
           builder: (_) => ChannelDetailPage(channel: channel),
@@ -166,8 +174,8 @@ class ChannelsPage extends HookConsumerWidget {
     }
 
     Future<void> openQuickActions() async {
-      final action = await showModalBottomSheet<_QuickAction>(
-        context: context,
+      final action = await showAdaptiveModal<_QuickAction>(
+        context,
         showDragHandle: true,
         builder: (_) => const _QuickActionsSheet(),
       );
@@ -178,8 +186,8 @@ class ChannelsPage extends HookConsumerWidget {
 
       switch (action) {
         case _QuickAction.createChannel:
-          final created = await showModalBottomSheet<Channel>(
-            context: context,
+          final created = await showAdaptiveModal<Channel>(
+            context,
             isScrollControlled: true,
             showDragHandle: true,
             builder: (_) => const _CreateChannelSheet(channelType: 'stream'),
@@ -188,8 +196,8 @@ class ChannelsPage extends HookConsumerWidget {
             await openChannel(created);
           }
         case _QuickAction.newDm:
-          final opened = await showModalBottomSheet<Channel>(
-            context: context,
+          final opened = await showAdaptiveModal<Channel>(
+            context,
             isScrollControlled: true,
             showDragHandle: true,
             builder: (_) =>
@@ -240,17 +248,35 @@ class ChannelsPage extends HookConsumerWidget {
       return timer.cancel;
     }, [isReconnectingWithContent]);
 
+    final communityIndicator = _CommunityIndicator(
+      onTap: () => showAdaptiveModal<void>(
+        context,
+        showDragHandle: true,
+        builder: (_) => const _CommunitySwitcherSheet(),
+      ),
+    );
+
     return FrostedScaffold(
       appBar: FrostedAppBar(
-        leading: _CommunityIndicator(
-          onTap: () => showModalBottomSheet<void>(
-            context: context,
-            showDragHandle: true,
-            builder: (_) => const _CommunitySwitcherSheet(),
-          ),
-        ),
+        // In the 280px-wide desktop list pane the indicator must yield space
+        // to the header actions; at narrow widths it renders unconstrained,
+        // exactly as before.
+        leading: isExpandedLayout(context)
+            ? ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 160),
+                child: communityIndicator,
+              )
+            : communityIndicator,
         title: const SizedBox.shrink(),
         actions: [
+          // At wide widths the FAB is hidden; quick actions move into the
+          // pane header so the embedded list pane keeps a single entry point.
+          if (isExpandedLayout(context))
+            IconButton(
+              onPressed: openQuickActions,
+              tooltip: 'Create or start conversation',
+              icon: const Icon(LucideIcons.plus),
+            ),
           ProfileAvatar(
             onTap: () => Navigator.of(context).push(
               MaterialPageRoute<void>(builder: (_) => const SettingsPage()),
@@ -259,15 +285,17 @@ class ChannelsPage extends HookConsumerWidget {
           const SizedBox(width: Grid.twelve + Grid.quarter),
         ],
       ),
-      floatingActionButton: FloatingActionButton(
-        heroTag: 'channels-fab',
-        onPressed: openQuickActions,
-        tooltip: 'Create or start conversation',
-        backgroundColor: context.colors.primary,
-        foregroundColor: context.colors.onPrimary,
-        shape: const CircleBorder(),
-        child: const Icon(LucideIcons.plus),
-      ),
+      floatingActionButton: isExpandedLayout(context)
+          ? null
+          : FloatingActionButton(
+              heroTag: 'channels-fab',
+              onPressed: openQuickActions,
+              tooltip: 'Create or start conversation',
+              backgroundColor: context.colors.primary,
+              foregroundColor: context.colors.onPrimary,
+              shape: const CircleBorder(),
+              child: const Icon(LucideIcons.plus),
+            ),
       body: _ChannelsBody(
         channels: channels,
         channelsAsync: channelsAsync,

@@ -8,7 +8,9 @@ import 'package:buzz/features/channels/channels_provider.dart';
 import 'package:buzz/features/channels/read_state/read_state_provider.dart';
 import 'package:buzz/features/channels/unread_badge/observed_unread_event.dart';
 import 'package:buzz/features/profile/profile_provider.dart';
+import 'package:buzz/features/profile/user_cache_provider.dart';
 import 'package:buzz/features/profile/user_profile.dart';
+import 'package:buzz/shared/shell/shell_state_provider.dart';
 import 'package:buzz/shared/theme/theme.dart';
 
 void main() {
@@ -362,6 +364,100 @@ void main() {
     expect(readState.seededContexts, {'1': 20});
     expect(readState.markedContexts, isEmpty);
   });
+
+  group('expanded layout', () {
+    void useWideSurface(WidgetTester tester) {
+      tester.view.devicePixelRatio = 1.0;
+      tester.view.physicalSize = const Size(1440, 900);
+      addTearDown(tester.view.reset);
+    }
+
+    ProviderContainer createContainer() {
+      final container = ProviderContainer(
+        overrides: [
+          profileProvider.overrideWith(() => _FakeProfileNotifier()),
+          presenceProvider.overrideWith(() => _FakePresenceNotifier()),
+          channelsProvider.overrideWith(() => _FakeNotifier(testChannels)),
+          // The DM tile preloads the other participant's profile through a
+          // batch timer that would outlive the test; a synchronous no-op
+          // cache keeps the wide tests timer-free.
+          userCacheProvider.overrideWith(() => _NoopUserCacheNotifier()),
+        ],
+      );
+      addTearDown(container.dispose);
+      return container;
+    }
+
+    testWidgets('tapping a channel writes shell state without pushing', (
+      tester,
+    ) async {
+      useWideSurface(tester);
+      final container = createContainer();
+      final observer = _CountingNavigatorObserver();
+
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp(
+            theme: AppTheme.light(),
+            navigatorObservers: [observer],
+            home: const ChannelsPage(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final pushesAfterMount = observer.pushCount;
+
+      await tester.tap(find.text('general'));
+      await tester.pumpAndSettle();
+
+      expect(container.read(shellStateProvider).selectedChannelId, '1');
+      expect(observer.pushCount, pushesAfterMount);
+      expect(find.byType(ChannelsPage), findsOneWidget);
+    });
+
+    testWidgets('replaces the FAB with a header quick-actions button', (
+      tester,
+    ) async {
+      useWideSurface(tester);
+      final container = createContainer();
+
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp(
+            theme: AppTheme.light(),
+            home: const ChannelsPage(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byType(FloatingActionButton), findsNothing);
+      expect(find.byTooltip('Create or start conversation'), findsOneWidget);
+    });
+  });
+}
+
+class _NoopUserCacheNotifier extends UserCacheNotifier {
+  @override
+  Map<String, UserProfile> build() => const {};
+
+  @override
+  UserProfile? get(String pubkey) => null;
+
+  @override
+  void preload(List<String> pubkeys) {}
+}
+
+class _CountingNavigatorObserver extends NavigatorObserver {
+  int pushCount = 0;
+
+  @override
+  void didPush(Route<dynamic> route, Route<dynamic>? previousRoute) {
+    pushCount += 1;
+    super.didPush(route, previousRoute);
+  }
 }
 
 class _FakeNotifier extends ChannelsNotifier {

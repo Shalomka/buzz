@@ -119,8 +119,8 @@ class _ChannelTile extends ConsumerWidget {
   }
 
   void _showChannelActions(BuildContext context, WidgetRef ref) {
-    showModalBottomSheet<void>(
-      context: context,
+    showAdaptiveModal<void>(
+      context,
       showDragHandle: true,
       builder: (sheetContext) {
         final sections = ref.read(channelSectionsProvider).store.sections
@@ -226,8 +226,8 @@ class _ChannelTile extends ConsumerWidget {
     WidgetRef ref,
     List<ChannelSection> sections,
   ) async {
-    await showModalBottomSheet<void>(
-      context: context,
+    await showAdaptiveModal<void>(
+      context,
       showDragHandle: true,
       builder: (sheetContext) {
         return SafeArea(
