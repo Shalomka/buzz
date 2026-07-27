@@ -17,6 +17,11 @@ class SidePanelHost extends ConsumerWidget {
       return const SizedBox.shrink();
     }
 
-    return const SidePanelSurface(title: 'Activity', child: ActivityView());
+    return const SidePanelSurface(
+      title: 'Activity',
+      // The panel header replaces the page's floating app bar, so the view's
+      // app-bar clearance would render as dead space here.
+      child: ActivityView(topPadding: Grid.xxs),
+    );
   }
 }

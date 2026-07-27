@@ -130,6 +130,55 @@ void main() {
     },
   );
 
+  test('deep-link retention is refcounted across independent owners', () async {
+    // The channel view and the thread side panel can pin the same event at
+    // once. Whichever releases first must not unpin the other's event.
+    final relaySession = _RecordingRelaySessionNotifier(
+      queryResults: [
+        [_event(id: 'history', createdAt: 10), _bounds()],
+      ],
+    );
+    final container = _buildContainer(relaySession);
+    addTearDown(container.dispose);
+
+    container.read(channelMessagesProvider(_channelId));
+    await relaySession.subscribed;
+    await _pumpEventQueue();
+    final notifier = container.read(
+      channelMessagesProvider(_channelId).notifier,
+    );
+
+    // Owner A pins 'target' by loading it out of the window.
+    final targetLoad = notifier.loadEventsById(const ['target']);
+    relaySession.completeTargetHistory([_event(id: 'target', createdAt: 5)]);
+    await targetLoad;
+    // Owner B pins the same id for its own lifetime.
+    notifier.retainDeepLinkEvents(const ['target']);
+
+    List<String> currentIds() =>
+        container
+            .read(channelMessagesProvider(_channelId))
+            .value
+            ?.map((event) => event.id)
+            .toList() ??
+        const [];
+
+    expect(currentIds(), ['target', 'history']);
+
+    // Owner B releases first: one pin remains, so the event survives a
+    // window rebuild driven by a live event.
+    notifier.releaseDeepLinkEvents(const ['target']);
+    relaySession.emit(_event(id: 'live', createdAt: 20));
+    await _pumpEventQueue();
+    expect(currentIds(), ['target', 'history', 'live']);
+
+    // Owner A releases: the refcount hits zero and the pin finally drops.
+    notifier.releaseDeepLinkEvents(const ['target']);
+    relaySession.emit(_event(id: 'live-2', createdAt: 30));
+    await _pumpEventQueue();
+    expect(currentIds(), ['history', 'live', 'live-2']);
+  });
+
   test('window pagination failures return false without exhausting', () async {
     final relaySession = _RecordingRelaySessionNotifier(
       queryResults: [

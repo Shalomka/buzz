@@ -40,7 +40,15 @@ class ActivityPage extends StatelessWidget {
 /// Extracted move-only from [ActivityPage] so the desktop shell can embed
 /// the same view in its side panel without a route push.
 class ActivityView extends HookConsumerWidget {
-  const ActivityView({super.key});
+  /// Top inset of the feed body.
+  ///
+  /// Defaults to [frostedAppBarHeight] so the full-window page clears its
+  /// floating [FrostedAppBar]. Embedders without that chrome — the desktop
+  /// shell's side panel — pass their own inset instead of inheriting dead
+  /// space under the panel header.
+  final double? topPadding;
+
+  const ActivityView({super.key, this.topPadding});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -133,7 +141,9 @@ class ActivityView extends HookConsumerWidget {
     return SafeArea(
       top: false,
       child: Padding(
-        padding: EdgeInsets.only(top: frostedAppBarHeight(context)),
+        padding: EdgeInsets.only(
+          top: topPadding ?? frostedAppBarHeight(context),
+        ),
         child: body,
       ),
     );

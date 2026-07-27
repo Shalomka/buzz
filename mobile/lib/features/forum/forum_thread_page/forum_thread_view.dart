@@ -12,6 +12,14 @@ class ForumThreadView extends HookConsumerWidget {
   final bool isMember;
   final bool isArchived;
 
+  /// Top inset of the thread body.
+  ///
+  /// Defaults to [frostedAppBarHeight] so the full-window page clears its
+  /// floating [FrostedAppBar]. Embedders without that chrome — the desktop
+  /// shell's side panel — pass their own inset instead of inheriting dead
+  /// space under the panel header.
+  final double? topPadding;
+
   const ForumThreadView({
     super.key,
     required this.channelId,
@@ -19,6 +27,7 @@ class ForumThreadView extends HookConsumerWidget {
     required this.currentPubkey,
     required this.isMember,
     required this.isArchived,
+    this.topPadding,
   });
 
   @override
@@ -37,13 +46,15 @@ class ForumThreadView extends HookConsumerWidget {
       return timer.cancel;
     }, [channelId, postEventId]);
 
+    final topInset = topPadding ?? frostedAppBarHeight(context);
+
     return threadAsync.when(
       loading: () => Padding(
-        padding: EdgeInsets.only(top: frostedAppBarHeight(context)),
+        padding: EdgeInsets.only(top: topInset),
         child: const Center(child: CircularProgressIndicator()),
       ),
       error: (e, _) => Padding(
-        padding: EdgeInsets.only(top: frostedAppBarHeight(context)),
+        padding: EdgeInsets.only(top: topInset),
         child: Center(
           child: Text(
             'Failed to load thread',
@@ -59,6 +70,7 @@ class ForumThreadView extends HookConsumerWidget {
         currentPubkey: currentPubkey,
         isMember: isMember,
         isArchived: isArchived,
+        topPadding: topInset,
       ),
     );
   }
@@ -70,6 +82,7 @@ class _ThreadContent extends HookConsumerWidget {
   final String? currentPubkey;
   final bool isMember;
   final bool isArchived;
+  final double topPadding;
 
   const _ThreadContent({
     required this.thread,
@@ -77,6 +90,7 @@ class _ThreadContent extends HookConsumerWidget {
     required this.currentPubkey,
     required this.isMember,
     required this.isArchived,
+    required this.topPadding,
   });
 
   @override
@@ -104,10 +118,7 @@ class _ThreadContent extends HookConsumerWidget {
       children: [
         Expanded(
           child: ListView(
-            padding: EdgeInsets.only(
-              top: frostedAppBarHeight(context),
-              bottom: Grid.xs,
-            ),
+            padding: EdgeInsets.only(top: topPadding, bottom: Grid.xs),
             children: [
               _OriginalPost(post: post),
 

@@ -167,6 +167,9 @@ class _SidePanelSlot extends StatelessWidget {
         SidePanelSurface(
           title: 'Thread',
           child: _ThreadPanelBody(
+            // Keyed so replacing the panel content with a nested thread
+            // remounts the body, resetting its retention and load state.
+            key: ValueKey((channel.id, rootId)),
             channel: channel,
             rootId: rootId,
             initialMessageId: initialMessageId,
@@ -192,6 +195,7 @@ class _ThreadPanelBody extends HookConsumerWidget {
   final String? initialMessageId;
 
   const _ThreadPanelBody({
+    super.key,
     required this.channel,
     required this.rootId,
     required this.initialMessageId,
@@ -216,22 +220,44 @@ class _ThreadPanelBody extends HookConsumerWidget {
         .where((message) => message.id == rootId)
         .firstOrNull;
     final hasThreadHead = threadHead != null;
+    final loadFailed = useState(false);
 
-    // Thread roots outside the loaded window are fetched with the same
-    // deep-link loader the channel view uses, so the panel resolves instead
-    // of spinning forever.
+    // Retention is scoped to the panel's lifetime, not to whether the head is
+    // currently resolved: releasing on a `false -> true` transition would
+    // unpin the very event the loader just fetched. Retention is refcounted,
+    // so this pin never drops the message pane's own deep-link pin.
     useEffect(() {
-      if (hasThreadHead) return null;
+      final notifier = ref.read(channelMessagesProvider(channel.id).notifier);
+      notifier.retainDeepLinkEvents({rootId});
+      return () => notifier.releaseDeepLinkEvents({rootId});
+    }, [channel.id, rootId]);
+
+    // Resolution is a separate effect keyed on the head's presence, so a head
+    // that later leaves the loaded window is fetched again instead of
+    // stranding the panel on a permanent spinner.
+    useEffect(() {
+      if (hasThreadHead || loadFailed.value) return null;
       final notifier = ref.read(channelMessagesProvider(channel.id).notifier);
       // Deferred: the effect runs inside the build phase, where widening the
       // message window would be a provider write during a build.
       unawaited(
-        Future<void>.microtask(() => _loadThreadRoot(notifier, rootId)),
+        Future<void>.microtask(() async {
+          final loaded = await _loadThreadRoot(notifier, rootId);
+          if (!context.mounted) return;
+          final resolved =
+              loaded &&
+              (ref.read(channelMessagesProvider(channel.id)).value ?? const [])
+                  .any((event) => event.id == rootId);
+          if (!resolved) loadFailed.value = true;
+        }),
       );
-      return () => notifier.releaseDeepLinkEvents({rootId});
-    }, [channel.id, rootId]);
+      return null;
+    }, [channel.id, rootId, hasThreadHead, loadFailed.value]);
 
     if (threadHead == null) {
+      if (loadFailed.value) {
+        return _ThreadPanelError(onRetry: () => loadFailed.value = false);
+      }
       return const Center(child: CircularProgressIndicator());
     }
 
@@ -244,6 +270,44 @@ class _ThreadPanelBody extends HookConsumerWidget {
       isMember: channel.isMember,
       isArchived: channel.isArchived,
       initialMessageId: initialMessageId,
+      topPadding: Grid.xxs,
+    );
+  }
+}
+
+/// Terminal state for a thread root that could not be resolved.
+///
+/// Without it an unreachable or deleted root would leave the panel on an
+/// indefinite spinner with no way to try again.
+class _ThreadPanelError extends StatelessWidget {
+  final VoidCallback onRetry;
+
+  const _ThreadPanelError({required this.onRetry});
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(Grid.xs),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              "Couldn't load this thread",
+              textAlign: TextAlign.center,
+              style: context.textTheme.bodyMedium?.copyWith(
+                color: context.colors.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: Grid.xxs),
+            TextButton(
+              key: const ValueKey('thread-panel-retry'),
+              onPressed: onRetry,
+              child: const Text('Try again'),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -272,19 +336,30 @@ class _ForumThreadPanelBody extends ConsumerWidget {
       currentPubkey: currentPubkey,
       isMember: channel.isMember,
       isArchived: channel.isArchived,
+      topPadding: Grid.xxs,
     );
   }
 }
 
 /// Fetch a thread root that may be outside the loaded channel window.
-Future<void> _loadThreadRoot(
+///
+/// Returns whether the fetch completed; the caller decides whether the root
+/// actually landed. `loadEventsById` acquires its own retention pin, which is
+/// released again here: the panel already holds a pin for its whole lifetime,
+/// so a retried fetch must not stack refcounts that nothing will ever drop.
+Future<bool> _loadThreadRoot(
   ChannelMessagesNotifier notifier,
   String rootId,
 ) async {
+  if (rootId.isEmpty) return false;
   try {
     await notifier.loadEventsById({rootId});
+    return true;
   } catch (error) {
     debugPrint('side panel: failed to load thread root: $error');
+    return false;
+  } finally {
+    notifier.releaseDeepLinkEvents({rootId});
   }
 }
 

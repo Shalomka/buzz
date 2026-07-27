@@ -22,6 +22,7 @@ import 'package:buzz/shared/theme/theme.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
+import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 
 final _channelA = Channel(
   id: 'channel-a',
@@ -417,6 +418,161 @@ void main() {
       );
     });
 
+    testWidgets('re-fetches a thread head that leaves the loaded window', (
+      tester,
+    ) async {
+      useWideSurface(tester);
+      final root = _messageEvent(id: 'root-1', content: 'root message');
+      final (container, messages) = createThreadContainer(
+        events: [root],
+        loadable: [root],
+      );
+
+      await tester.pumpWidget(buildTestable(container));
+      await tester.pump();
+      container.read(shellStateProvider.notifier)
+        ..selectChannel('channel-a')
+        ..openThreadPanel('root-1');
+      await tester.pump();
+      await tester.pump();
+      expect(find.byType(ThreadView), findsOneWidget);
+      // The head was already loaded, so no fetch was needed.
+      expect(messages.loadCalls, isEmpty);
+
+      // The head drops out of the window (eviction, window rebuild, an
+      // unpinned deep-link event). Resolution must be retried rather than
+      // leaving the panel on a permanent spinner.
+      messages.setEvents(const []);
+      await tester.pump();
+      await tester.pump();
+
+      expect(messages.loadCalls, [
+        {'root-1'},
+      ]);
+      await tester.pump();
+      expect(find.byType(ThreadView), findsOneWidget);
+    });
+
+    testWidgets('an unresolvable thread root offers a retry, not a spinner', (
+      tester,
+    ) async {
+      useWideSurface(tester);
+      // 'ghost-root' is in neither the window nor the loader's reach.
+      final (container, messages) = createThreadContainer(
+        events: [_messageEvent(id: 'root-1', content: 'root message')],
+      );
+
+      await tester.pumpWidget(buildTestable(container));
+      await tester.pump();
+      container.read(shellStateProvider.notifier)
+        ..selectChannel('channel-a')
+        ..openThreadPanel('ghost-root');
+      await tester.pump();
+      await tester.pump();
+      await tester.pump();
+
+      expect(find.byType(CircularProgressIndicator), findsNothing);
+      expect(find.text("Couldn't load this thread"), findsOneWidget);
+      expect(messages.loadCalls, [
+        {'ghost-root'},
+      ]);
+
+      await tester.tap(find.byKey(const ValueKey('thread-panel-retry')));
+      await tester.pump();
+      await tester.pump();
+      await tester.pump();
+
+      // Retry re-runs the fetch and lands back on the terminal state.
+      expect(messages.loadCalls, [
+        {'ghost-root'},
+        {'ghost-root'},
+      ]);
+      expect(find.text("Couldn't load this thread"), findsOneWidget);
+    });
+
+    testWidgets('a failing deep-link fetch shows the retry state', (
+      tester,
+    ) async {
+      useWideSurface(tester);
+      final messages = _FakeMessagesNotifier(
+        'channel-a',
+        events: [_messageEvent(id: 'root-1', content: 'root message')],
+        failLoad: true,
+      );
+      final container = createContainer(messages: {'channel-a': messages});
+
+      await tester.pumpWidget(buildTestable(container));
+      await tester.pump();
+      container.read(shellStateProvider.notifier)
+        ..selectChannel('channel-a')
+        ..openThreadPanel('far-root');
+      await tester.pump();
+      await tester.pump();
+      await tester.pump();
+
+      expect(find.text("Couldn't load this thread"), findsOneWidget);
+      expect(find.byType(CircularProgressIndicator), findsNothing);
+    });
+
+    testWidgets('releases exactly its own thread-root pin on close', (
+      tester,
+    ) async {
+      useWideSurface(tester);
+      final (container, messages) = createThreadContainer(
+        events: [_messageEvent(id: 'root-1', content: 'root message')],
+      );
+
+      await tester.pumpWidget(buildTestable(container));
+      await tester.pump();
+      container.read(shellStateProvider.notifier)
+        ..selectChannel('channel-a')
+        ..openThreadPanel('root-1');
+      await tester.pump();
+      await tester.pump();
+      expect(find.byType(ThreadView), findsOneWidget);
+      // The panel holds its pin for as long as it is open.
+      expect(messages.releaseCalls, isEmpty);
+
+      await tester.tap(find.byKey(const ValueKey('side-panel-close')));
+      await tester.pump();
+      await tester.pump();
+
+      // Exactly one release, scoped to the root the panel itself retained:
+      // retention is refcounted, so this cannot unpin the message pane's own
+      // deep-link events.
+      expect(messages.releaseCalls, [
+        {'root-1'},
+      ]);
+    });
+
+    testWidgets('the embedded panel drops the floating app-bar top inset', (
+      tester,
+    ) async {
+      useWideSurface(tester);
+      final (container, _) = createThreadContainer(
+        events: [_messageEvent(id: 'root-1', content: 'root message')],
+      );
+
+      await tester.pumpWidget(buildTestable(container));
+      await tester.pump();
+      container.read(shellStateProvider.notifier)
+        ..selectChannel('channel-a')
+        ..openThreadPanel('root-1');
+      await tester.pump();
+      await tester.pump();
+
+      final list = tester.widget<ScrollablePositionedList>(
+        find.descendant(
+          of: find.byType(ThreadView),
+          matching: find.byType(ScrollablePositionedList),
+        ),
+      );
+      // The panel header replaces the page's floating FrostedAppBar, so the
+      // page's clearance (frostedAppBarHeight, 48 with no status bar) would
+      // be dead space here.
+      expect(list.padding?.top, Grid.xxs);
+    });
+
     testWidgets('the close button clears the panel', (tester) async {
       useWideSurface(tester);
       final (container, _) = createThreadContainer(
@@ -555,6 +711,34 @@ void main() {
       expect(find.byType(ForumThreadView), findsOneWidget);
       expect(observer.pushCount, pushesBefore);
     });
+
+    testWidgets('the embedded panel drops the floating app-bar top inset', (
+      tester,
+    ) async {
+      useWideSurface(tester);
+      final container = createContainer(channels: [_channelA, _forumChannel]);
+
+      await tester.pumpWidget(buildTestable(container));
+      await tester.pump();
+      container.read(shellStateProvider.notifier)
+        ..selectChannel('channel-forum')
+        ..openForumThreadPanel('post-1');
+      await tester.pumpAndSettle();
+
+      final list = tester.widget<ListView>(
+        find.descendant(
+          of: find.byType(ForumThreadView),
+          matching: find.byType(ListView),
+        ),
+      );
+      // Same reasoning as the thread panel: the page's frostedAppBarHeight
+      // clearance (48 with no status bar) is dead space under the panel
+      // header.
+      expect(
+        list.padding,
+        const EdgeInsets.only(top: Grid.xxs, bottom: Grid.xs),
+      );
+    });
   });
 }
 
@@ -578,6 +762,9 @@ class _FakeMessagesNotifier extends ChannelMessagesNotifier {
   /// notifier's `loadEventsById` behavior of widening the window.
   final List<NostrEvent> loadable;
 
+  /// Whether the deep-link loader should fail, mirroring an unreachable relay.
+  final bool failLoad;
+
   final List<Set<String>> loadCalls = [];
   final List<Set<String>> releaseCalls = [];
 
@@ -585,10 +772,14 @@ class _FakeMessagesNotifier extends ChannelMessagesNotifier {
     super.channelId, {
     this.events = const [],
     this.loadable = const [],
+    this.failLoad = false,
   });
 
   @override
   AsyncValue<List<NostrEvent>> build() => AsyncData(events);
+
+  /// Replaces the loaded window, e.g. to drop an event out of it.
+  void setEvents(List<NostrEvent> next) => state = AsyncData(next);
 
   @override
   bool get reachedOldest => true;
@@ -600,6 +791,7 @@ class _FakeMessagesNotifier extends ChannelMessagesNotifier {
   Future<void> loadEventsById(Iterable<String> eventIds) async {
     final ids = eventIds.toSet();
     loadCalls.add(ids);
+    if (failLoad) throw Exception('deep-link fetch failed');
     final fetched = loadable.where((event) => ids.contains(event.id)).toList();
     if (fetched.isEmpty) return;
     state = AsyncData([...?state.value, ...fetched]);

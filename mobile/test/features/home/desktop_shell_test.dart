@@ -211,6 +211,44 @@ void main() {
       );
     });
 
+    testWidgets('the embedded panel drops the floating app-bar top inset', (
+      tester,
+    ) async {
+      useWideSurface(tester);
+      final (container, _) = createContainer();
+
+      await tester.pumpWidget(buildTestable(container));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('community-rail-activity')));
+      await tester.pumpAndSettle();
+
+      // The panel header replaces the page's floating FrostedAppBar, so the
+      // page's clearance (frostedAppBarHeight, 48 with no status bar) would
+      // sit between the header and the first feed row as dead space.
+      expect(
+        find.descendant(
+          of: find.byType(ActivityView),
+          matching: find.byWidgetPredicate(
+            (widget) =>
+                widget is Padding &&
+                widget.padding == const EdgeInsets.only(top: Grid.xxs),
+          ),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: find.byType(ActivityView),
+          matching: find.byWidgetPredicate(
+            (widget) =>
+                widget is Padding &&
+                widget.padding == const EdgeInsets.only(top: 48),
+          ),
+        ),
+        findsNothing,
+      );
+    });
+
     testWidgets('opening a thread panel closes the activity panel', (
       tester,
     ) async {

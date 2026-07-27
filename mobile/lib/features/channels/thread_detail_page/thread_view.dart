@@ -14,6 +14,14 @@ class ThreadView extends HookConsumerWidget {
   final bool isArchived;
   final String? initialMessageId;
 
+  /// Top inset of the reply list.
+  ///
+  /// Defaults to [frostedAppBarHeight] so the full-window page clears its
+  /// floating [FrostedAppBar]. Embedders without that chrome — the desktop
+  /// shell's side panel — pass their own inset instead of inheriting dead
+  /// space under the panel header.
+  final double? topPadding;
+
   const ThreadView({
     super.key,
     required this.threadHead,
@@ -23,6 +31,7 @@ class ThreadView extends HookConsumerWidget {
     required this.isMember,
     required this.isArchived,
     this.initialMessageId,
+    this.topPadding,
   });
 
   @override
@@ -130,7 +139,7 @@ class ThreadView extends HookConsumerWidget {
             padding: EdgeInsets.only(
               left: Grid.gutter,
               right: Grid.gutter,
-              top: frostedAppBarHeight(context),
+              top: topPadding ?? frostedAppBarHeight(context),
               bottom: Grid.xxs,
             ),
             itemCount: replies.length + 1, // +1 for thread head
