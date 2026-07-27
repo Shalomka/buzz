@@ -1,99 +1,18 @@
 import 'dart:convert';
 
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:buzz/shared/community/community.dart';
 import 'package:buzz/shared/community/community_storage.dart';
 
-/// In-memory fake that extends Fake to satisfy all FlutterSecureStorage
-/// interface methods, but implements the core read/write/delete with real
-/// in-memory logic.
-class FakeSecureStorage extends Fake implements FlutterSecureStorage {
-  final Map<String, String> _data = {};
-
-  @override
-  Future<String?> read({
-    required String key,
-    AppleOptions? iOptions,
-    AndroidOptions? aOptions,
-    LinuxOptions? lOptions,
-    WebOptions? webOptions,
-    AppleOptions? mOptions,
-    WindowsOptions? wOptions,
-  }) async => _data[key];
-
-  @override
-  Future<void> write({
-    required String key,
-    required String? value,
-    AppleOptions? iOptions,
-    AndroidOptions? aOptions,
-    LinuxOptions? lOptions,
-    WebOptions? webOptions,
-    AppleOptions? mOptions,
-    WindowsOptions? wOptions,
-  }) async {
-    if (value != null) {
-      _data[key] = value;
-    } else {
-      _data.remove(key);
-    }
-  }
-
-  @override
-  Future<void> delete({
-    required String key,
-    AppleOptions? iOptions,
-    AndroidOptions? aOptions,
-    LinuxOptions? lOptions,
-    WebOptions? webOptions,
-    AppleOptions? mOptions,
-    WindowsOptions? wOptions,
-  }) async => _data.remove(key);
-
-  @override
-  Future<Map<String, String>> readAll({
-    AppleOptions? iOptions,
-    AndroidOptions? aOptions,
-    LinuxOptions? lOptions,
-    WebOptions? webOptions,
-    AppleOptions? mOptions,
-    WindowsOptions? wOptions,
-  }) async => Map.from(_data);
-
-  @override
-  Future<void> deleteAll({
-    AppleOptions? iOptions,
-    AndroidOptions? aOptions,
-    LinuxOptions? lOptions,
-    WebOptions? webOptions,
-    AppleOptions? mOptions,
-    WindowsOptions? wOptions,
-  }) async => _data.clear();
-
-  @override
-  Future<bool> containsKey({
-    required String key,
-    AppleOptions? iOptions,
-    AndroidOptions? aOptions,
-    LinuxOptions? lOptions,
-    WebOptions? webOptions,
-    AppleOptions? mOptions,
-    WindowsOptions? wOptions,
-  }) async => _data.containsKey(key);
-
-  // Convenience for setting up test data.
-  String? operator [](String key) => _data[key];
-  void operator []=(String key, String value) => _data[key] = value;
-}
+import '../../helpers/fake_key_value_store.dart';
 
 void main() {
-  late FakeSecureStorage fakeSecure;
+  late FakeKeyValueStore fakeSecure;
   late CommunityStorage storage;
 
   setUp(() {
-    fakeSecure = FakeSecureStorage();
-    storage = CommunityStorage(secure: fakeSecure);
+    fakeSecure = FakeKeyValueStore();
+    storage = CommunityStorage(store: fakeSecure);
   });
 
   group('CommunityStorage', () {

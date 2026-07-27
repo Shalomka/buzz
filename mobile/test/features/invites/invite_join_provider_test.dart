@@ -10,7 +10,7 @@ import 'package:buzz/features/invites/invite_join_provider.dart';
 import 'package:buzz/shared/auth/auth.dart';
 import 'package:buzz/shared/deeplink/deep_link.dart';
 
-import '../../shared/community/community_storage_test.dart';
+import '../../helpers/fake_key_value_store.dart';
 
 void main() {
   for (final existingRelayUrl in [
@@ -22,7 +22,7 @@ void main() {
       () async {
         var generatedKeys = 0;
         var claimRequests = 0;
-        final storage = CommunityStorage(secure: FakeSecureStorage());
+        final storage = CommunityStorage(store: FakeKeyValueStore());
         final existing = Community(
           id: 'existing-id',
           name: 'Existing',
@@ -80,7 +80,7 @@ void main() {
     () async {
       final keys = nostr.Keys.generate();
       http.Request? capturedRequest;
-      final storage = CommunityStorage(secure: FakeSecureStorage());
+      final storage = CommunityStorage(store: FakeKeyValueStore());
       final auth = _RecordingAuthNotifier();
       final container = ProviderContainer(
         overrides: [
@@ -142,7 +142,7 @@ void main() {
   test('join_policy_required requires a fresh link and cannot retry', () async {
     final keys = nostr.Keys.generate();
     var attempts = 0;
-    final storage = CommunityStorage(secure: FakeSecureStorage());
+    final storage = CommunityStorage(store: FakeKeyValueStore());
     final container = ProviderContainer(
       overrides: [
         communityStorageProvider.overrideWithValue(storage),
@@ -187,7 +187,7 @@ void main() {
     final keys = nostr.Keys.generate();
     var attempts = 0;
     final bodies = <String>[];
-    final storage = CommunityStorage(secure: FakeSecureStorage());
+    final storage = CommunityStorage(store: FakeKeyValueStore());
     final auth = _RecordingAuthNotifier();
     final container = ProviderContainer(
       overrides: [

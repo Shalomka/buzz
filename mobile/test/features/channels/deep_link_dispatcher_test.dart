@@ -12,7 +12,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 
-import '../../shared/community/community_storage_test.dart';
+import '../../helpers/fake_key_value_store.dart';
 
 void main() {
   testWidgets('dispatches a link that is already ready on mount', (
@@ -128,7 +128,7 @@ void main() {
   testWidgets(
     'dispatches invite before auth while leaving message links parked',
     (tester) async {
-      final inviteStorage = CommunityStorage(secure: FakeSecureStorage());
+      final inviteStorage = CommunityStorage(store: FakeKeyValueStore());
       final inviteContainer = ProviderContainer(
         overrides: [
           communityStorageProvider.overrideWithValue(inviteStorage),

@@ -1,7 +1,6 @@
 import 'dart:convert';
 
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
-
+import '../storage/key_value_store.dart';
 import 'community.dart';
 
 class CommunityStorage {
@@ -16,34 +15,34 @@ class CommunityStorage {
   static const _legacyPubkey = 'buzz_pubkey';
   static const _legacyNsec = 'buzz_nsec';
 
-  final FlutterSecureStorage _secure;
+  final KeyValueStore _store;
 
-  CommunityStorage({FlutterSecureStorage? secure})
-    : _secure = secure ?? const FlutterSecureStorage();
+  CommunityStorage({KeyValueStore? store})
+    : _store = store ?? const SecureKeyValueStore();
 
   /// Load all communities. On first call, migrates legacy single-community
   /// credentials if present.
   Future<List<Community>> loadAll() async {
-    final raw = await _secure.read(key: _keyCommunities);
+    final raw = await _store.read(key: _keyCommunities);
     if (raw != null) return _decodeList(raw);
 
-    final legacyCommunities = await _secure.read(key: _legacyCommunities);
+    final legacyCommunities = await _store.read(key: _legacyCommunities);
     if (legacyCommunities != null) {
       final communities = _decodeList(legacyCommunities);
       await _saveList(communities);
-      final legacyActiveId = await _secure.read(key: _legacyActiveId);
+      final legacyActiveId = await _store.read(key: _legacyActiveId);
       if (legacyActiveId != null) await saveActiveId(legacyActiveId);
-      await _secure.delete(key: _legacyCommunities);
-      await _secure.delete(key: _legacyActiveId);
+      await _store.delete(key: _legacyCommunities);
+      await _store.delete(key: _legacyActiveId);
       return communities;
     }
 
     // Migration: check for legacy single-community keys.
-    final legacyUrl = await _secure.read(key: _legacyRelayUrl);
-    final legacyToken = await _secure.read(key: _legacyToken);
+    final legacyUrl = await _store.read(key: _legacyRelayUrl);
+    final legacyToken = await _store.read(key: _legacyToken);
     if (legacyUrl != null && legacyToken != null) {
-      final legacyPubkey = await _secure.read(key: _legacyPubkey);
-      final legacyNsec = await _secure.read(key: _legacyNsec);
+      final legacyPubkey = await _store.read(key: _legacyPubkey);
+      final legacyNsec = await _store.read(key: _legacyNsec);
 
       final name = Community.nameFromUrl(legacyUrl);
       final community = Community.create(
@@ -57,10 +56,10 @@ class CommunityStorage {
       await saveActiveId(community.id);
 
       // Delete legacy keys.
-      await _secure.delete(key: _legacyRelayUrl);
-      await _secure.delete(key: _legacyToken);
-      await _secure.delete(key: _legacyPubkey);
-      await _secure.delete(key: _legacyNsec);
+      await _store.delete(key: _legacyRelayUrl);
+      await _store.delete(key: _legacyToken);
+      await _store.delete(key: _legacyPubkey);
+      await _store.delete(key: _legacyNsec);
 
       return [community];
     }
@@ -86,15 +85,15 @@ class CommunityStorage {
   }
 
   Future<String?> loadActiveId() async {
-    return _secure.read(key: _keyActiveId);
+    return _store.read(key: _keyActiveId);
   }
 
   Future<void> saveActiveId(String id) async {
-    await _secure.write(key: _keyActiveId, value: id);
+    await _store.write(key: _keyActiveId, value: id);
   }
 
   Future<void> clearActiveId() async {
-    await _secure.delete(key: _keyActiveId);
+    await _store.delete(key: _keyActiveId);
   }
 
   List<Community> _decodeList(String raw) {
@@ -106,6 +105,6 @@ class CommunityStorage {
 
   Future<void> _saveList(List<Community> communities) async {
     final json = jsonEncode(communities.map((item) => item.toJson()).toList());
-    await _secure.write(key: _keyCommunities, value: json);
+    await _store.write(key: _keyCommunities, value: json);
   }
 }

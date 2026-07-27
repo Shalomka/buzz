@@ -6,13 +6,13 @@ import 'package:buzz/shared/community/community.dart';
 import 'package:buzz/shared/community/community_provider.dart';
 import 'package:buzz/shared/community/community_storage.dart';
 
-import '../community/community_storage_test.dart';
+import '../../helpers/fake_key_value_store.dart';
 
 void main() {
   test(
     'removes an invalid saved community instead of authenticating',
     () async {
-      final storage = CommunityStorage(secure: FakeSecureStorage());
+      final storage = CommunityStorage(store: FakeKeyValueStore());
       final invalid = Community.create(
         name: 'Invalid',
         relayUrl: 'https://relay.example',
@@ -34,7 +34,7 @@ void main() {
   );
 
   test('falls through to the next valid saved community', () async {
-    final storage = CommunityStorage(secure: FakeSecureStorage());
+    final storage = CommunityStorage(store: FakeKeyValueStore());
     final invalid = Community.create(
       name: 'Invalid',
       relayUrl: 'https://invalid.example',

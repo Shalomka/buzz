@@ -1,11 +1,12 @@
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 
 import '../auth/auth_provider.dart';
+import '../storage/key_value_store_provider.dart';
 import 'community.dart';
 import 'community_storage.dart';
 
 final communityStorageProvider = Provider<CommunityStorage>((ref) {
-  return CommunityStorage();
+  return CommunityStorage(store: ref.watch(keyValueStoreProvider));
 });
 
 class CommunityListNotifier extends AsyncNotifier<List<Community>> {
