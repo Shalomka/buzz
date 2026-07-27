@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
@@ -11,6 +12,7 @@ import 'package:buzz/features/channels/channel_detail_page.dart';
 import 'package:buzz/features/channels/channel_management_provider.dart';
 import 'package:buzz/features/channels/channel_messages_provider.dart';
 import 'package:buzz/features/channels/channel_typing_provider.dart';
+import 'package:buzz/features/channels/message_actions.dart';
 import 'package:buzz/features/channels/thread_detail_page.dart';
 import 'package:buzz/features/channels/timeline_message.dart';
 import 'package:buzz/features/channels/channels_provider.dart';
@@ -1248,6 +1250,107 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(observer.pushCount, initialPushCount + 1);
+    });
+  });
+
+  /// Right-click parity for the three row types that carry the long-press
+  /// actions surface. Asserted against the surface's real contents rather
+  /// than the handler, so a right-click wired to the wrong closure fails.
+  group('right-click message actions', () {
+    Future<void> secondaryTap(WidgetTester tester, Finder finder) async {
+      await tester.tap(
+        finder,
+        buttons: kSecondaryButton,
+        kind: PointerDeviceKind.mouse,
+      );
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('secondary tap on a message row opens the actions surface', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        _buildTestable(
+          messages: [
+            _textMsg(id: 'msg1', pubkey: 'alice', content: 'Hello there'),
+          ],
+          users: {
+            'alice': const UserProfile(pubkey: 'alice', displayName: 'Alice'),
+          },
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Copy text'), findsNothing);
+
+      await secondaryTap(tester, findRichText('Hello there'));
+
+      expect(find.text('Copy text'), findsOneWidget);
+      expect(find.text('Reply in thread'), findsOneWidget);
+    });
+
+    testWidgets('secondary tap on a system row opens the actions surface', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        _buildTestable(
+          messages: [
+            _systemMsg(
+              id: 'sys1',
+              payload: {'type': 'channel_created', 'actor': 'alice'},
+            ),
+          ],
+          users: {
+            'alice': const UserProfile(pubkey: 'alice', displayName: 'Alice'),
+          },
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text(quickEmojis.first), findsNothing);
+
+      await secondaryTap(tester, find.text('Alice created this channel'));
+
+      // System rows expose no thread/copy/manage entries, so the quick
+      // reaction row is the whole actions surface.
+      expect(find.text(quickEmojis.first), findsOneWidget);
+      expect(find.text('Copy text'), findsNothing);
+    });
+
+    testWidgets('secondary tap on a thread row opens the actions surface', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        _buildTestable(
+          messages: [
+            _textMsg(id: 'msg1', pubkey: 'alice', content: 'Thread root'),
+          ],
+          users: {
+            'alice': const UserProfile(pubkey: 'alice', displayName: 'Alice'),
+          },
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final threadMessages = formatTimeline([
+        _textMsg(id: 'msg1', pubkey: 'alice', content: 'Thread root'),
+      ]);
+      Navigator.of(tester.element(find.byType(ChannelDetailPage))).push(
+        MaterialPageRoute<void>(
+          builder: (_) => ThreadDetailPage(
+            threadHead: threadMessages.single,
+            allMessages: threadMessages,
+            channelId: _channelId,
+            currentPubkey: 'self',
+            isMember: true,
+            isArchived: false,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Copy text'), findsNothing);
+
+      await secondaryTap(tester, findRichText('Thread root').last);
+
+      expect(find.text('Copy text'), findsOneWidget);
     });
   });
 }

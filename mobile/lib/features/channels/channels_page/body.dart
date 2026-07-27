@@ -106,16 +106,15 @@ class _SliverChannelsList extends HookConsumerWidget {
       for (final entry in starsState.store.channels.entries)
         if (entry.value.starred) entry.key,
     };
-    final visibleChannels = channels
-        .where((channel) => channel.isMember && !channel.isArchived)
-        .toList();
-    final streamChannels = visibleChannels
-        .where((channel) => channel.isStream)
-        .toList();
-    final dmChannels = sortDmChannelsByDisplayLabel(
-      visibleChannels.where((channel) => channel.isDm),
+    final order = computeChannelListOrder(
+      channels: channels,
+      sections: sectionsState.store.sections,
+      sectionAssignments: sectionsState.store.assignments,
+      starredChannelIds: starredChannelIds,
       currentPubkey: currentPubkey,
     );
+    final visibleChannels = order.visible;
+    final dmChannels = order.dms;
 
     final starredExpanded = useState(true);
     final channelsExpanded = useState(true);
@@ -171,29 +170,12 @@ class _SliverChannelsList extends HookConsumerWidget {
         if (unreadChannelIds.contains(entry.key)) entry.key: entry.value,
     };
 
-    // Build sorted user-defined sections and compute which stream channels
-    // belong to each section. Channels not assigned to any valid section fall
-    // through to the built-in "Channels" list.
-    final userSections = sectionsState.store.sections.toList()
-      ..sort((a, b) => a.order.compareTo(b.order));
-    final sectionAssignments = sectionsState.store.assignments;
-    final validSectionIds = {for (final s in userSections) s.id};
-    final assignedChannelIds = {
-      for (final entry in sectionAssignments.entries)
-        if (validSectionIds.contains(entry.value)) entry.key,
-    };
-    // Starred is exclusive: a starred channel lives only in the Starred section,
-    // not in its custom section or the default Channels list.
-    final starredStreamChannels = streamChannels
-        .where((c) => starredChannelIds.contains(c.id))
-        .toList();
-    final ungroupedStreamChannels = streamChannels
-        .where(
-          (c) =>
-              !assignedChannelIds.contains(c.id) &&
-              !starredChannelIds.contains(c.id),
-        )
-        .toList();
+    // Sections in user-defined order, each with its stream channels. Channels
+    // not assigned to any valid section fall through to the built-in
+    // "Channels" list; starred channels are exclusive to "Starred".
+    final sectionGroups = order.sections;
+    final starredStreamChannels = order.starred;
+    final ungroupedStreamChannels = order.ungrouped;
 
     final sectionExpandedStates = useState<Map<String, bool>>({});
 
@@ -231,47 +213,41 @@ class _SliverChannelsList extends HookConsumerWidget {
                 onSelectChannel: onSelectChannel,
               ),
             // User-defined sections for stream channels, in user-defined order.
-            for (final section in userSections)
+            for (final group in sectionGroups)
               _CustomChannelSection(
-                section: section,
-                channels: streamChannels
-                    .where(
-                      (c) =>
-                          sectionAssignments[c.id] == section.id &&
-                          !starredChannelIds.contains(c.id),
-                    )
-                    .toList(),
+                section: group.section,
+                channels: group.channels,
                 unreadChannelIds: unreadChannelIds,
                 unreadChannelCounts: unreadChannelCounts,
                 mutedChannelIds: mutedChannelIds,
                 currentPubkey: currentPubkey,
-                expanded: sectionExpanded(section.id),
-                isFirst: userSections.first.id == section.id,
-                isLast: userSections.last.id == section.id,
+                expanded: sectionExpanded(group.section.id),
+                isFirst: sectionGroups.first.section.id == group.section.id,
+                isLast: sectionGroups.last.section.id == group.section.id,
                 showTopDivider:
                     starredStreamChannels.isNotEmpty ||
-                    userSections.first.id != section.id,
-                onToggle: () => toggleSection(section.id),
+                    sectionGroups.first.section.id != group.section.id,
+                onToggle: () => toggleSection(group.section.id),
                 onRename: () async {
                   final name = await showDialog<String>(
                     context: context,
                     builder: (_) => _SectionNameDialog(
                       title: 'Rename Section',
                       confirmLabel: 'Rename',
-                      initialValue: section.name,
+                      initialValue: group.section.name,
                     ),
                   );
                   if (name != null && name.isNotEmpty) {
                     ref
                         .read(channelSectionsProvider.notifier)
-                        .renameSection(section.id, name);
+                        .renameSection(group.section.id, name);
                   }
                 },
                 onDelete: () async {
                   final confirmed = await showDialog<bool>(
                     context: context,
                     builder: (_) => AlertDialog(
-                      title: Text('Delete "${section.name}"?'),
+                      title: Text('Delete "${group.section.name}"?'),
                       content: const Text(
                         'Channels in this section will move back to the main list.',
                       ),
@@ -293,15 +269,15 @@ class _SliverChannelsList extends HookConsumerWidget {
                   if (confirmed == true) {
                     ref
                         .read(channelSectionsProvider.notifier)
-                        .deleteSection(section.id);
+                        .deleteSection(group.section.id);
                   }
                 },
                 onMoveUp: () => ref
                     .read(channelSectionsProvider.notifier)
-                    .moveSectionUp(section.id),
+                    .moveSectionUp(group.section.id),
                 onMoveDown: () => ref
                     .read(channelSectionsProvider.notifier)
-                    .moveSectionDown(section.id),
+                    .moveSectionDown(group.section.id),
                 onSelectChannel: onSelectChannel,
                 onMarkChannelRead: (channel) {
                   final ts = dateTimeToUnixSeconds(channel.lastMessageAt);
@@ -319,7 +295,7 @@ class _SliverChannelsList extends HookConsumerWidget {
               title: 'Channels',
               icon: LucideIcons.hash,
               showTopDivider:
-                  starredStreamChannels.isNotEmpty || userSections.isNotEmpty,
+                  starredStreamChannels.isNotEmpty || sectionGroups.isNotEmpty,
               expanded: channelsExpanded.value,
               onToggle: () => channelsExpanded.value = !channelsExpanded.value,
               channels: ungroupedStreamChannels,

@@ -11,6 +11,7 @@ import '../../shared/layout/breakpoints.dart';
 import '../../shared/relay/relay.dart';
 import '../../shared/shell/shell_state_provider.dart';
 import '../../shared/theme/theme.dart';
+import '../../shared/widgets/adaptive_modal.dart';
 import '../../shared/widgets/avatar_image.dart';
 import '../../shared/widgets/frosted_app_bar.dart';
 import '../../shared/widgets/frosted_scaffold.dart';
@@ -26,6 +27,7 @@ import '../pairing/pairing_page.dart';
 import '../pairing/pairing_provider.dart';
 import 'channel.dart';
 import 'channel_detail_page.dart';
+import 'channel_list_order.dart';
 import 'channel_management_provider.dart';
 import 'dm_channel_labels.dart';
 import 'ephemeral_channel_display.dart';
@@ -172,8 +174,8 @@ class ChannelsPage extends HookConsumerWidget {
     }
 
     Future<void> openQuickActions() async {
-      final action = await showModalBottomSheet<_QuickAction>(
-        context: context,
+      final action = await showAdaptiveModal<_QuickAction>(
+        context,
         showDragHandle: true,
         builder: (_) => const _QuickActionsSheet(),
       );
@@ -184,8 +186,8 @@ class ChannelsPage extends HookConsumerWidget {
 
       switch (action) {
         case _QuickAction.createChannel:
-          final created = await showModalBottomSheet<Channel>(
-            context: context,
+          final created = await showAdaptiveModal<Channel>(
+            context,
             isScrollControlled: true,
             showDragHandle: true,
             builder: (_) => const _CreateChannelSheet(channelType: 'stream'),
@@ -194,8 +196,8 @@ class ChannelsPage extends HookConsumerWidget {
             await openChannel(created);
           }
         case _QuickAction.newDm:
-          final opened = await showModalBottomSheet<Channel>(
-            context: context,
+          final opened = await showAdaptiveModal<Channel>(
+            context,
             isScrollControlled: true,
             showDragHandle: true,
             builder: (_) =>
@@ -247,8 +249,8 @@ class ChannelsPage extends HookConsumerWidget {
     }, [isReconnectingWithContent]);
 
     final communityIndicator = _CommunityIndicator(
-      onTap: () => showModalBottomSheet<void>(
-        context: context,
+      onTap: () => showAdaptiveModal<void>(
+        context,
         showDragHandle: true,
         builder: (_) => const _CommunitySwitcherSheet(),
       ),

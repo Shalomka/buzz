@@ -3,12 +3,16 @@ import 'package:buzz/features/activity/activity_provider.dart';
 import 'package:buzz/features/activity/feed_item.dart';
 import 'package:buzz/features/channels/channel.dart';
 import 'package:buzz/features/channels/channel_workspace.dart';
+import 'package:buzz/features/channels/channels_page.dart';
 import 'package:buzz/features/channels/channels_provider.dart';
 import 'package:buzz/features/channels/unread_badge/observed_unread_event.dart';
 import 'package:buzz/features/channels/unread_badge/unread_badge_provider.dart';
 import 'package:buzz/features/home/desktop_shell.dart';
 import 'package:buzz/features/profile/profile_provider.dart';
 import 'package:buzz/features/profile/user_profile.dart';
+import 'package:buzz/features/pulse/pulse_models.dart';
+import 'package:buzz/features/pulse/pulse_page.dart';
+import 'package:buzz/features/pulse/pulse_provider.dart';
 import 'package:buzz/shared/community/community.dart';
 import 'package:buzz/shared/community/community_provider.dart';
 import 'package:buzz/shared/shell/shell_state.dart';
@@ -72,6 +76,10 @@ void main() {
         profileProvider.overrideWith(() => _FakeProfileNotifier()),
         presenceProvider.overrideWith(() => _FakePresenceNotifier()),
         activityProvider.overrideWith(() => _FakeActivityNotifier()),
+        // The Pulse destination mounts PulsePage, whose feed providers would
+        // otherwise open relay fetches (and their timers) during the test.
+        globalNotesProvider.overrideWith((ref) async => const <UserNote>[]),
+        agentPubkeysProvider.overrideWith((ref) async => const <String>[]),
         if (unreadBadge != null)
           unreadBadgeProvider.overrideWithValue(unreadBadge),
       ],
@@ -174,6 +182,56 @@ void main() {
       container.read(shellStateProvider).mainContent,
       ShellMainContent.channels,
     );
+  });
+
+  group('pulse destination', () {
+    testWidgets('the rail button swaps the main content to Pulse', (
+      tester,
+    ) async {
+      useWideSurface(tester);
+      final (container, _) = createContainer();
+
+      await tester.pumpWidget(buildTestable(container));
+      await tester.pumpAndSettle();
+      expect(find.byType(ChannelWorkspace), findsOneWidget);
+      expect(find.byType(PulsePage), findsNothing);
+
+      await tester.tap(find.byKey(const ValueKey('community-rail-pulse')));
+      await tester.pumpAndSettle();
+
+      expect(
+        container.read(shellStateProvider).mainContent,
+        ShellMainContent.pulse,
+      );
+      expect(find.byType(PulsePage), findsOneWidget);
+      expect(find.byType(ChannelWorkspace), findsNothing);
+      expect(find.byType(ChannelsPage), findsNothing);
+    });
+
+    testWidgets('selecting a channel returns the content to channels', (
+      tester,
+    ) async {
+      useWideSurface(tester);
+      final (container, _) = createContainer();
+
+      await tester.pumpWidget(buildTestable(container));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('community-rail-pulse')));
+      await tester.pumpAndSettle();
+      expect(find.byType(PulsePage), findsOneWidget);
+
+      // The id matches no loaded channel, keeping the workspace on its light
+      // empty state while still proving the content region switched back.
+      container.read(shellStateProvider.notifier).selectChannel('missing');
+      await tester.pumpAndSettle();
+
+      expect(
+        container.read(shellStateProvider).mainContent,
+        ShellMainContent.channels,
+      );
+      expect(find.byType(PulsePage), findsNothing);
+      expect(find.byType(ChannelWorkspace), findsOneWidget);
+    });
   });
 
   group('activity side panel', () {

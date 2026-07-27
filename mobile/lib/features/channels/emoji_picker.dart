@@ -3,6 +3,7 @@ import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../shared/theme/theme.dart';
+import '../../shared/widgets/adaptive_modal.dart';
 import '../custom_emoji/custom_emoji.dart';
 import '../custom_emoji/custom_emoji_provider.dart';
 import '../custom_emoji/custom_emoji_render.dart';
@@ -12,8 +13,8 @@ void showEmojiPicker({
   required BuildContext context,
   required void Function(String emoji) onSelect,
 }) {
-  showModalBottomSheet<void>(
-    context: context,
+  showAdaptiveModal<void>(
+    context,
     isScrollControlled: true,
     showDragHandle: true,
     backgroundColor: context.colors.surfaceContainerHighest,

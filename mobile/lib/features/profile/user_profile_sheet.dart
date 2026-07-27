@@ -6,6 +6,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../shared/clipboard_utils.dart';
 import '../../shared/relay/relay.dart';
 import '../../shared/theme/theme.dart';
+import '../../shared/widgets/adaptive_modal.dart';
 import '../../shared/widgets/avatar_image.dart';
 import '../../shared/utils/string_utils.dart';
 import '../channels/channel_detail_page.dart';
@@ -17,8 +18,8 @@ import '../channels/message_content.dart';
 
 /// Show a user profile bottom sheet for the given [pubkey].
 void showUserProfileSheet(BuildContext context, String pubkey) {
-  showModalBottomSheet<void>(
-    context: context,
+  showAdaptiveModal<void>(
+    context,
     isScrollControlled: true,
     showDragHandle: true,
     builder: (_) => UserProfileSheet(pubkey: pubkey),

@@ -4,8 +4,9 @@ part of '../desktop_shell.dart';
 ///
 /// Lists community avatar buttons (tap an inactive community to switch to
 /// it; tap the active one to show the channels content), an add-community
-/// button, the activity bell (toggles the shell's activity side panel), and
-/// the profile avatar (opens Settings). Part 4 adds the Pulse destination.
+/// button, the Pulse destination (swaps the main pane to the Pulse feed),
+/// the activity bell (toggles the shell's activity side panel), and the
+/// profile avatar (opens Settings).
 class CommunityRail extends ConsumerWidget {
   const CommunityRail({super.key});
 
@@ -45,6 +46,7 @@ class CommunityRail extends ConsumerWidget {
                 ],
               ),
             ),
+            const _PulseButton(),
             const _ActivityBellButton(),
             const SizedBox(height: Grid.xxs),
             ProfileAvatar(
@@ -121,6 +123,37 @@ class _CommunityRailButton extends ConsumerWidget {
               ),
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Rail button showing the Pulse feed in the shell's main pane.
+///
+/// Selecting a channel switches the pane back to channels, so this reads as a
+/// destination rather than a toggle.
+class _PulseButton extends ConsumerWidget {
+  const _PulseButton();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final isActive = ref.watch(
+      shellStateProvider.select(
+        (state) => state.mainContent == ShellMainContent.pulse,
+      ),
+    );
+
+    return Center(
+      child: IconButton(
+        key: const ValueKey('community-rail-pulse'),
+        tooltip: 'Pulse',
+        onPressed: () => ref.read(shellStateProvider.notifier).showPulse(),
+        icon: Icon(
+          LucideIcons.activity,
+          color: isActive
+              ? context.colors.primary
+              : context.colors.onSurfaceVariant,
         ),
       ),
     );

@@ -10,6 +10,7 @@ import '../../shared/layout/breakpoints.dart';
 import '../../shared/relay/relay.dart';
 import '../../shared/shell/shell_state_provider.dart';
 import '../../shared/theme/theme.dart';
+import '../../shared/widgets/adaptive_modal.dart';
 import '../../shared/widgets/avatar_image.dart';
 import '../../shared/widgets/frosted_app_bar.dart';
 import '../../shared/widgets/frosted_scaffold.dart';

@@ -363,8 +363,8 @@ class _ReplyRow extends ConsumerWidget {
         currentPubkey != null &&
         reply.pubkey.toLowerCase() == currentPubkey!.toLowerCase();
 
-    showModalBottomSheet<void>(
-      context: context,
+    showAdaptiveModal<void>(
+      context,
       showDragHandle: true,
       builder: (sheetContext) => SafeArea(
         child: Padding(
