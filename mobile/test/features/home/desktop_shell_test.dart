@@ -15,6 +15,7 @@ import 'package:buzz/features/pulse/pulse_page.dart';
 import 'package:buzz/features/pulse/pulse_provider.dart';
 import 'package:buzz/shared/community/community.dart';
 import 'package:buzz/shared/community/community_provider.dart';
+import 'package:buzz/shared/platform/is_web.dart';
 import 'package:buzz/shared/shell/shell_state.dart';
 import 'package:buzz/shared/shell/shell_state_provider.dart';
 import 'package:buzz/shared/theme/theme.dart';
@@ -60,6 +61,7 @@ void main() {
 
   (ProviderContainer, _FakeCommunityListNotifier) createContainer({
     UnreadBadgeState? unreadBadge,
+    bool isWeb = false,
   }) {
     final communities = [_communityA, _communityB];
     final communityList = _FakeCommunityListNotifier(communities);
@@ -82,6 +84,7 @@ void main() {
         agentPubkeysProvider.overrideWith((ref) async => const <String>[]),
         if (unreadBadge != null)
           unreadBadgeProvider.overrideWithValue(unreadBadge),
+        isWebProvider.overrideWithValue(isWeb),
       ],
     );
     addTearDown(container.dispose);
@@ -124,6 +127,29 @@ void main() {
     // The three panes render: channel list content and empty message pane.
     expect(find.text('general'), findsOneWidget);
     expect(find.text('Select a channel'), findsOneWidget);
+  });
+
+  testWidgets('renders the unselected shell chrome on web', (tester) async {
+    useWideSurface(tester);
+    final (container, _) = createContainer(isWeb: true);
+
+    await tester.pumpWidget(buildTestable(container));
+    await tester.pumpAndSettle();
+
+    // Scope, stated precisely: this covers the shell's *ungated* chrome under
+    // a web scope — the rail, the channel list, and the empty message pane all
+    // still render. It exercises none of the web gates: ComposeBar is this
+    // tree's only reader of the media-upload capability and it mounts only
+    // with a channel selected, which drags in ChannelDetailView's relay
+    // history fetch and leaves its timers pending. The gates themselves are
+    // covered directly by compose_bar_test.dart's `web gates` group.
+    expect(
+      find.byKey(const ValueKey('community-rail-item-community-a')),
+      findsOneWidget,
+    );
+    expect(find.text('general'), findsOneWidget);
+    expect(find.text('Select a channel'), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('tapping another community switches and resets the shell state', (
