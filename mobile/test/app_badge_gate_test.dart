@@ -28,6 +28,17 @@ void main() {
         .setMockMethodCallHandler(_appBadgeChannel, null);
   });
 
+  void failBadgeChannel() {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(_appBadgeChannel, (call) async {
+          badgeCalls.add(call);
+          throw PlatformException(
+            code: 'unavailable',
+            message: 'launcher rejected the badge update',
+          );
+        });
+  }
+
   Future<void> pumpApp(WidgetTester tester, {required bool isWeb}) async {
     SharedPreferences.setMockInitialValues({});
     final prefs = await SharedPreferences.getInstance();
@@ -61,6 +72,23 @@ void main() {
       await pumpApp(tester, isWeb: true);
 
       expect(badgeCalls, isEmpty);
+    });
+
+    testWidgets('swallows a badge update rejected by the launcher', (
+      tester,
+    ) async {
+      failBadgeChannel();
+
+      await pumpApp(tester, isWeb: false);
+      // Let the rejected updateBadge future settle; without the catchError the
+      // rejection would surface here as an unhandled async error and fail the
+      // test.
+      await tester.pumpAndSettle();
+
+      // The call was made and rejected, and nothing escaped to the framework.
+      expect(badgeCalls, isNotEmpty);
+      expect(badgeCalls.first.method, 'updateBadge');
+      expect(tester.takeException(), isNull);
     });
   });
 }

@@ -10,7 +10,6 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import 'package:nostr/nostr.dart' as nostr;
 
-import '../../shared/platform/is_web.dart';
 import '../../shared/relay/relay.dart';
 import '../../shared/theme/theme.dart';
 import '../../shared/widgets/adaptive_modal.dart';
@@ -133,7 +132,13 @@ class ComposeBar extends HookConsumerWidget {
     final hasAttachments = attachments.value.isNotEmpty;
     final hasPendingUploads = uploadingCount.value > 0;
     final customEmoji = ref.watch(customEmojiListProvider);
-    final isWeb = ref.watch(isWebProvider);
+    // Single source of truth for the media-upload capability: the service owns
+    // it (derived from the host in mediaUploadServiceProvider) and every
+    // affordance that would reach the native buzz/media_upload channel asks it
+    // rather than re-deriving web-ness here.
+    final supportsMediaUpload = ref
+        .watch(mediaUploadServiceProvider)
+        .supportsMediaUpload;
 
     final resolvedHint =
         hintText ??
@@ -142,7 +147,9 @@ class ComposeBar extends HookConsumerWidget {
     useEffect(() {
       // defaultTargetPlatform is user-agent derived on web, so iOS Safari
       // reaches this; the buzz/media_upload channel has no web side.
-      if (isWeb || defaultTargetPlatform != TargetPlatform.iOS) return null;
+      if (!supportsMediaUpload || defaultTargetPlatform != TargetPlatform.iOS) {
+        return null;
+      }
 
       var disposed = false;
       Future<void> refreshClipboardAvailability() async {
@@ -752,7 +759,7 @@ class ComposeBar extends HookConsumerWidget {
                     // buzz/media_upload channel (video transcode; image EXIF
                     // scrub), which has no web implementation — see "Media
                     // upload on web" in the plan.
-                    if (!isWeb)
+                    if (supportsMediaUpload)
                       _ComposeAction(
                         icon: LucideIcons.paperclip,
                         onTap: () {

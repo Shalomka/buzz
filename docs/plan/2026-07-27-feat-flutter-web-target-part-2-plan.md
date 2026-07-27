@@ -118,9 +118,14 @@ Read the Part 1 seam at each hostile call site and branch:
   landed those. Do not re-touch them.
 - `mobile/lib/shared/platform/is_web.dart` — inherited from Part 1, **read it,
   do not edit it**.
-- Gating `uploadBytes()` (`media_upload.dart:235+`), `uploadDroppedFiles`
-  (`compose_bar.dart:498-514`), or `uploadPastedImage` (`compose_bar.dart:556+`)
-  — all pure Dart and web-safe. Gating them would remove capability that works.
+- Gating `uploadBytes()` (`media_upload.dart:235+`) or `uploadDroppedFiles`
+  (`compose_bar.dart:498-514`) — both pure Dart and web-safe. Gating them would
+  remove capability that works. (**Correction:** `uploadPastedImage`
+  (`compose_bar.dart:556+`) is *not* in this set — it calls `uploadImage`, not
+  `uploadBytes`, and so can reach the native channel. It is unreachable on web
+  today only because the Flutter web engine never emits
+  `TextInputClient.insertContent`; the capability guard now sits on
+  `uploadImage` itself.)
 - Weakening or "fixing" the top-level predicates `_shouldSanitizePickedImage`
   (:518), `_shouldTranscodePickedImage` (:451), or
   `_supportsNativeUploadImageProcessing()` (:525-530). They stay correct for
@@ -603,8 +608,11 @@ follow its B task so a failure localises immediately.
 
       **Leave the sheet's "Photo" and "Video" `ListTile`s exactly as they are**
       (:769-780) — hiding their only entry point is sufficient and keeps the diff
-      to one line. **Do not gate** `uploadDroppedFiles` (:498-514) or
-      `uploadPastedImage` (:556+): both call `uploadBytes` directly in pure Dart.
+      to one line. **Do not gate** `uploadDroppedFiles` (:498-514): it calls
+      `uploadBytes` directly in pure Dart. (**Correction:** `uploadPastedImage`
+      (:556+) does *not* — it calls `uploadImage`, which can reach the native
+      channel. It needs no call-site gate because the guard now lives on
+      `uploadImage`.)
 - [ ] **B4. Media upload fail-fast** — `mobile/lib/shared/relay/media_upload.dart`.
       One capability covers both media paths; see
       [Media upload on web](#media-upload-on-web-the-chosen-remedy) for why the

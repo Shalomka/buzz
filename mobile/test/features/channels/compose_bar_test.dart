@@ -113,6 +113,25 @@ void _setMockMediaUploadPlatformHandler(
       .setMockMethodCallHandler(_mediaUploadPlatformChannel, handler);
 }
 
+/// The `buzz/media_upload` behaviour every group in this file assumes.
+///
+/// Groups that need to observe the channel install their own handler and must
+/// restore this one, so it lives in exactly one place — a hand-retyped copy
+/// could drift and would only fail under a randomized test order.
+Future<Object?> _defaultMediaUploadHandler(MethodCall call) async {
+  switch (call.method) {
+    case 'sanitizeImageForUpload':
+      final arguments = call.arguments as Map<Object?, Object?>;
+      return arguments['bytes'] as Uint8List;
+    case 'transcodeImageToJpeg':
+      return _pngBytes;
+    case 'clipboardHasImage':
+      return true;
+    default:
+      return null;
+  }
+}
+
 Widget _buildComposeBar({
   required MediaUploadService uploadService,
   required ComposeBarOnSend onSend,
@@ -243,19 +262,7 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   setUpAll(() {
-    _setMockMediaUploadPlatformHandler((call) async {
-      switch (call.method) {
-        case 'sanitizeImageForUpload':
-          final arguments = call.arguments as Map<Object?, Object?>;
-          return arguments['bytes'] as Uint8List;
-        case 'transcodeImageToJpeg':
-          return _pngBytes;
-        case 'clipboardHasImage':
-          return true;
-        default:
-          return null;
-      }
-    });
+    _setMockMediaUploadPlatformHandler(_defaultMediaUploadHandler);
   });
 
   tearDownAll(() {
@@ -534,19 +541,7 @@ void main() {
 
         expect(menu.items.whereType<IOSSystemContextMenuItemCustom>(), isEmpty);
       } finally {
-        _setMockMediaUploadPlatformHandler((call) async {
-          switch (call.method) {
-            case 'sanitizeImageForUpload':
-              final arguments = call.arguments as Map<Object?, Object?>;
-              return arguments['bytes'] as Uint8List;
-            case 'transcodeImageToJpeg':
-              return _pngBytes;
-            case 'clipboardHasImage':
-              return true;
-            default:
-              return null;
-          }
-        });
+        _setMockMediaUploadPlatformHandler(_defaultMediaUploadHandler);
         debugDefaultTargetPlatformOverride = previousPlatform;
       }
     });
@@ -1740,28 +1735,20 @@ void main() {
     // back — otherwise a group added after this one would silently inherit
     // the counting handler.
     tearDown(() {
-      _setMockMediaUploadPlatformHandler((call) async {
-        switch (call.method) {
-          case 'sanitizeImageForUpload':
-            final arguments = call.arguments as Map<Object?, Object?>;
-            return arguments['bytes'] as Uint8List;
-          case 'transcodeImageToJpeg':
-            return _pngBytes;
-          case 'clipboardHasImage':
-            return true;
-          default:
-            return null;
-        }
-      });
+      _setMockMediaUploadPlatformHandler(_defaultMediaUploadHandler);
     });
 
     Widget buildWebComposeBar({required bool isWeb}) {
       return _buildComposeBar(
+        // Mirrors the real wiring: mediaUploadServiceProvider derives
+        // supportsMediaUpload from isWebProvider, so a web scope can never
+        // hold an upload-enabled service.
         uploadService: MediaUploadService(
           baseUrl: 'https://relay.example',
           nsec: nostr.Keys.generate().nsec,
           pickGalleryVideo: () async => null,
           pickGalleryImage: () async => null,
+          supportsMediaUpload: !isWeb,
         ),
         extraOverrides: [isWebProvider.overrideWithValue(isWeb)],
         onSend:

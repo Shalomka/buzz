@@ -129,15 +129,20 @@ void main() {
     expect(find.text('Select a channel'), findsOneWidget);
   });
 
-  testWidgets('renders the full shell on web without throwing', (tester) async {
+  testWidgets('renders the unselected shell chrome on web', (tester) async {
     useWideSurface(tester);
     final (container, _) = createContainer(isWeb: true);
 
     await tester.pumpWidget(buildTestable(container));
     await tester.pumpAndSettle();
 
-    // One reused screen proves the web gates do not break the shell: the rail,
-    // the channel list, and the empty message pane all still render.
+    // Scope, stated precisely: this covers the shell's *ungated* chrome under
+    // a web scope — the rail, the channel list, and the empty message pane all
+    // still render. It exercises none of the web gates: ComposeBar is this
+    // tree's only reader of the media-upload capability and it mounts only
+    // with a channel selected, which drags in ChannelDetailView's relay
+    // history fetch and leaves its timers pending. The gates themselves are
+    // covered directly by compose_bar_test.dart's `web gates` group.
     expect(
       find.byKey(const ValueKey('community-rail-item-community-a')),
       findsOneWidget,

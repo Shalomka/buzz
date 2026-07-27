@@ -21,6 +21,16 @@ void main() {
         findsOneWidget,
       );
       expect(find.text('Welcome to Buzz'), findsOneWidget);
+      // Non-web control for the subtitle copy: asserting the exact mobile
+      // string is what stops the web variant from being forced onto Android
+      // and iOS unnoticed.
+      expect(
+        find.text(
+          'Scan the QR code from your desktop app\n'
+          'or paste a pairing code to connect.',
+        ),
+        findsOneWidget,
+      );
       expect(find.text('Scan QR Code'), findsOneWidget);
       expect(find.text('or paste pairing code'), findsOneWidget);
       expect(find.text('Connect'), findsOneWidget);

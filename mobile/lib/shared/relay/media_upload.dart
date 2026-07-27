@@ -182,21 +182,36 @@ class MediaUploadService {
     }
   }
 
-  Future<BlobDescriptor?> pickAndUploadImage() async {
+  /// Whether this service may touch the native `buzz/media_upload` channel.
+  ///
+  /// The single source of truth for the capability — UI that offers a media
+  /// affordance must read this rather than re-deriving web-ness from the host.
+  bool get supportsMediaUpload => _supportsMediaUpload;
+
+  /// Choke point for the capability contract: every method that can reach the
+  /// native `buzz/media_upload` channel calls this first, so the invariant is
+  /// enforced here rather than at each caller.
+  void _ensureMediaUploadSupported() {
     if (!_supportsMediaUpload) {
       throw Exception(_unsupportedWebMediaUploadMessage);
     }
+  }
+
+  Future<BlobDescriptor?> pickAndUploadImage() async {
+    _ensureMediaUploadSupported();
     final pickedImage = await _pickGalleryImage();
     if (pickedImage == null) return null;
     return uploadImage(pickedImage);
   }
 
   Future<BlobDescriptor> uploadImage(XFile image) async {
+    _ensureMediaUploadSupported();
     final preparedImage = await _prepareUploadImage(image);
     return uploadBytes(preparedImage.bytes, mimeType: preparedImage.mimeType);
   }
 
   Future<bool> clipboardHasImage() async {
+    _ensureMediaUploadSupported();
     return await _mediaUploadPlatformChannel.invokeMethod<bool>(
           _clipboardHasImageMethod,
         ) ??
@@ -204,9 +219,7 @@ class MediaUploadService {
   }
 
   Future<BlobDescriptor> readAndUploadClipboardImage() async {
-    if (!_supportsMediaUpload) {
-      throw Exception(_unsupportedWebMediaUploadMessage);
-    }
+    _ensureMediaUploadSupported();
     final bytes = await _readClipboardImage();
     if (bytes == null || bytes.isEmpty) {
       throw Exception('Unable to read pasted image');
