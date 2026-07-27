@@ -17,8 +17,15 @@ class CommunityStorage {
 
   final KeyValueStore _store;
 
-  CommunityStorage({KeyValueStore? store})
-    : _store = store ?? const SecureKeyValueStore();
+  /// Creates storage backed by [store].
+  ///
+  /// [store] is deliberately required and has no default. This parameter
+  /// carries the whole security decision: a default of [SecureKeyValueStore]
+  /// would route the Nostr nsec to `localStorage` on web for any caller that
+  /// simply forgot to pass one — silently, with every test and lint still
+  /// green. Requiring it turns that hazard into a compile error. Production
+  /// callers should resolve it from `keyValueStoreProvider`.
+  CommunityStorage({required KeyValueStore store}) : _store = store;
 
   /// Load all communities. On first call, migrates legacy single-community
   /// credentials if present.

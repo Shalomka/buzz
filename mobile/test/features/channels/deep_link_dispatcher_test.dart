@@ -329,6 +329,8 @@ final _channel = Channel(
 );
 
 class _CountingCommunityStorage extends CommunityStorage {
+  _CountingCommunityStorage() : super(store: FakeKeyValueStore());
+
   int loadCalls = 0;
 
   @override
@@ -339,6 +341,8 @@ class _CountingCommunityStorage extends CommunityStorage {
 }
 
 class _ThrowingCommunityStorage extends CommunityStorage {
+  _ThrowingCommunityStorage() : super(store: FakeKeyValueStore());
+
   @override
   Future<List<Community>> loadAll() async {
     throw StateError('secure storage unavailable');
