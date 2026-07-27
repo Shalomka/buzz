@@ -48,11 +48,14 @@ scope.
   are testable.
 - **B7 (scoped)** — `flutter analyze` clean for this slice.
 
-**There is no behavioral change in this part.** Exactly one file under
-`mobile/lib` is added (`is_web.dart`); no existing `lib/` file is edited, and
-**no test file is added or edited at all**. Part 2 adds the five runtime gates
-that consume `isWebProvider`; Part 3 adds the session-only storage seam and the
-docs.
+**There is no intended behavioral change in this part.** Exactly one file under
+`mobile/lib` is added (`is_web.dart`), and **no test file is added or edited at
+all**. Two existing `lib/` files are edited as
+[supervisor-authorized scope amendments](#supervisor-authorized-scope-amendments-added-during-build)
+discovered during the build — both are no-ops on Android/iOS, one deleting a
+guard that could never fire and one restoring ink splashes the framework already
+considered broken. Part 2 adds the five runtime gates that consume
+`isWebProvider`; Part 3 adds the session-only storage seam and the docs.
 
 ## Problem Statement / Motivation
 
@@ -90,6 +93,30 @@ rejected there with evidence — do not revisit).
 - `justfile` — one new recipe (`mobile-build-web`), placed immediately after
   `mobile-build-android`.
 - `mobile/lib/shared/platform/is_web.dart` — new, ~10 lines.
+
+### Supervisor-authorized scope amendments (added during build)
+
+Two files outside the original scope were authorized by the supervisor during
+the build stage, each in its own `fix(mobile):` commit:
+
+1. **`mobile/lib/shared/relay/mp4_fast_start.dart`** — the first
+   `flutter build web` (A5) failed on `const _uint64Max = 0x7fffffffffffffff`,
+   which dart2js cannot represent exactly. Its sole use was a guard that is
+   vacuous on the VM (`int` is exactly 64-bit signed), so the constant and the
+   guard were deleted — a strict no-op on Android/iOS. **Reason:** Part 1's
+   deliverable is a green `flutter build web`; deferring the only compile
+   error would ship a red build gate through two PRs. Note this buys
+   compilability only — `_adjustCo64` still calls `ByteData.getUint64`/
+   `setUint64`, which throw `UnsupportedError` under dart2js, so mp4
+   fast-start remains native-only.
+2. **`mobile/lib/features/channels/compose_bar/suggestions.dart`** — three
+   pre-existing failures in `mobile/test/features/channels/compose_bar_test.dart`
+   (present on `main` at `e4622671`, before any of this work) tripped Flutter
+   3.44's `ListTile background color or ink splashes may be invisible`
+   assertion. Fixed at the root cause: the surface colour moved from the
+   `Container`'s `BoxDecoration` onto a `Material` inside it. **Reason:** the
+   `lefthook` pre-push hook runs `mobile-test`, so a red suite blocked pushing
+   any branch in this stack. No test file was edited.
 
 ### Out of scope for Part 1 — do not implement
 
@@ -184,7 +211,7 @@ trust this section and not re-review the codebase.**
 | Icon source | `mobile/ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-1024x1024@1x.png` (1024², exists). `assets/images/buzz-icon.png` is 294×197 — **not** usable |
 | `sips` | available at `/usr/bin/sips` |
 | File-size guard | `mobile/scripts/check-file-sizes.mjs` — 1000 lines, **`lib/` only**, no overrides. `test/` is not scanned |
-| Baseline | `flutter analyze` → **No errors**; 60 `*_test.dart` files all pass |
+| Baseline | `flutter analyze` → **No errors**. ~~60 `*_test.dart` files all pass~~ — **corrected during build:** the base commit `e4622671` is red (`+617 -3 ~1`), three `compose_bar_test.dart` failures from a Flutter 3.44 `ListTile`/`Material` assertion. Fixed as a supervisor-authorized amendment |
 
 **Hook/permission constraints for the build stage (hard constraints):**
 
@@ -294,7 +321,12 @@ From `CLAUDE.md` (§ Mobile App) and observed repo practice:
 
 Android/iOS ship today. Part 1 is designed to be provably inert on them:
 
-- The only `lib/` addition is an unreferenced provider.
+- The only `lib/` **addition** is an unreferenced provider. The two authorized
+  amendments edit existing files but are behaviour-preserving on native: the
+  deleted `co64` guard could never fire on a 64-bit signed `int`, and the
+  `Material` wrapper changes no rendered pixels (it only gives the existing
+  `ListTile`s a surface to paint splashes on, which the framework was already
+  asserting about).
 - No dependency, `pubspec`, `android/`, or `ios/` changes at all.
 - Adding `mobile/web/` does not change the Android or iOS build inputs.
 - The 60 existing test files are the regression gate. **None may be weakened,
@@ -328,13 +360,22 @@ Every item is mechanically checkable. `<base>` below means the merge-base with
 - [ ] `cd mobile && flutter analyze` reports **zero errors** (no new warnings or
       infos either).
 - [ ] The full mobile test suite passes via the `very_good_cli` MCP `test` tool
-      (`directory: mobile`), with **all 60 test files unmodified**.
+      (`directory: mobile`) with **zero failures** (`+620 -0 ~1`; the `~1` is the
+      pre-existing Video-chooser skip), with **all 60 test files unmodified**.
       `git diff --name-only <base>...HEAD -- mobile/test` is **empty**.
+      Note: the baseline claim below that all 60 files pass at `e4622671` was
+      **wrong** — the base commit is red (`+617 -3 ~1`), which the
+      `suggestions.dart` amendment above fixes at the root cause.
 - [ ] `cd mobile && dart format --output=none --set-exit-if-changed .` exits 0.
 - [ ] `cd mobile && node ./scripts/check-file-sizes.mjs` exits 0, and **no
       override entry is added** to that script.
-- [ ] `git diff --name-only <base>...HEAD -- mobile/lib` returns **exactly one
-      path**: `mobile/lib/shared/platform/is_web.dart`.
+- [ ] `git diff --name-only <base>...HEAD -- mobile/lib` returns **exactly three
+      paths**: `mobile/lib/shared/platform/is_web.dart` plus the two
+      supervisor-authorized scope amendments
+      `mobile/lib/shared/relay/mp4_fast_start.dart` and
+      `mobile/lib/features/channels/compose_bar/suggestions.dart` (see
+      [Supervisor-authorized scope amendments](#supervisor-authorized-scope-amendments-added-during-build)).
+      Each amendment is its own `fix(mobile):` commit.
 - [ ] `git diff --stat <base>...HEAD -- mobile/pubspec.yaml mobile/pubspec.lock 'mobile/android/**' 'mobile/ios/**' ':(top).github/**' ':(top)crates/**' ':(top)desktop/**' ':(top)web/**' .env.example`
       is **empty**. Note the `:(top)` prefixes: a bare `web/**` pathspec would
       match the newly added `mobile/web/**` and make this check meaningless.
@@ -517,9 +558,11 @@ has pulled Part 2 scope forward. Stop instead.
 - `flutter build web --release` goes from "not configured for the web" to a green
   build of ~35.6k LOC across 172 lib files — a previously untested property.
 - Zero change to the Android/iOS runtime: no dependency, pubspec, `android/`, or
-  `ios/` diff, an empty `mobile/test` diff, and a fully green pre-existing suite.
+  `ios/` diff, an empty `mobile/test` diff, and a green suite — which this part
+  had to *restore* (`+617 -3 ~1` → `+620 -0 ~1`), the base commit having been red.
 - Exactly one new `lib/` file, ~10 lines, unreferenced by design — the smallest
-  possible seam for Parts 2 and 3 to build on.
+  possible seam for Parts 2 and 3 to build on. Two further `lib/` files are
+  edited as authorized amendments, both no-ops on native.
 
 ## Risks & Mitigations
 
