@@ -2,6 +2,7 @@ import 'dart:collection';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_hooks/flutter_hooks.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
@@ -11,6 +12,8 @@ import 'package:nostr/nostr.dart' as nostr;
 
 import '../../shared/relay/relay.dart';
 import '../../shared/theme/theme.dart';
+import '../../shared/widgets/adaptive_modal.dart';
+import '../../shared/widgets/attachment_drop_region.dart';
 import '../../shared/widgets/avatar_image.dart';
 import '../profile/user_cache_provider.dart';
 import '../profile/user_profile.dart';
@@ -36,6 +39,55 @@ const _pastedImageMimeTypes = <String>[
   'image/png',
   'image/webp',
 ];
+
+/// Mime types the composer can infer from a dropped file's extension.
+///
+/// Narrower than the upload service's allow-list on purpose: anything not
+/// listed here is reported as an unsupported file type rather than uploaded
+/// with a guessed content type.
+const _droppedFileMimeTypes = <String, String>{
+  'jpg': 'image/jpeg',
+  'jpeg': 'image/jpeg',
+  'png': 'image/png',
+  'webp': 'image/webp',
+  'mp4': 'video/mp4',
+};
+
+/// Hardware-keyboard handling for the composer text field.
+///
+/// Enter (and numpad Enter) without Shift invokes [send]; Shift+Enter is left
+/// to the field so it inserts a newline. This applies at every width —
+/// external keyboards on phones emit key events too — while touch and
+/// soft-keyboard input keep their existing behavior.
+///
+/// While an IME composition is in flight (CJK and similar), Enter belongs to
+/// the IME: it commits the in-progress candidate. Consuming it here would send
+/// the still-uncommitted text instead, so [controller]'s composing range is
+/// checked first and the event falls through untouched.
+KeyEventResult _handleComposerKey(
+  KeyEvent event,
+  TextEditingController controller,
+  VoidCallback send,
+) {
+  if (event is! KeyDownEvent) return KeyEventResult.ignored;
+  if (controller.value.composing.isValid) return KeyEventResult.ignored;
+  final isEnter =
+      event.logicalKey == LogicalKeyboardKey.enter ||
+      event.logicalKey == LogicalKeyboardKey.numpadEnter;
+  if (!isEnter || HardwareKeyboard.instance.isShiftPressed) {
+    return KeyEventResult.ignored;
+  }
+  send();
+  return KeyEventResult.handled;
+}
+
+/// Resolves the mime type of a dropped file from its extension, or null when
+/// the extension is missing or unsupported.
+String? _mimeTypeForFileName(String name) {
+  final dot = name.lastIndexOf('.');
+  if (dot < 0 || dot == name.length - 1) return null;
+  return _droppedFileMimeTypes[name.substring(dot + 1).toLowerCase()];
+}
 
 /// Rich compose bar with @mention autocomplete, emoji picker, and a markdown
 /// formatting toolbar. Used in both channel and thread views — the caller
@@ -436,6 +488,32 @@ class ComposeBar extends HookConsumerWidget {
       }
     }
 
+    /// Uploads files handed over by an OS drag-and-drop gesture, reusing the
+    /// picker pipeline so attachments, progress, and errors behave the same.
+    ///
+    /// A drop is inherently multi-file and [pickAndUpload] clears
+    /// [uploadError] as each file starts, so per-file failures are collected
+    /// here and reported together once the batch finishes — otherwise the
+    /// last file silently erases every earlier error.
+    Future<void> uploadDroppedFiles(List<DroppedFileData> files) async {
+      final failures = <String>[];
+      for (final file in files) {
+        await pickAndUpload(() async {
+          final mimeType = _mimeTypeForFileName(file.name);
+          if (mimeType == null) {
+            throw Exception('unsupported file type: ${file.name}');
+          }
+          return ref
+              .read(mediaUploadServiceProvider)
+              .uploadBytes(file.bytes, mimeType: mimeType);
+        });
+        if (uploadError.value case final error?) failures.add(error);
+      }
+      if (failures.isNotEmpty && context.mounted) {
+        uploadError.value = failures.join('\n');
+      }
+    }
+
     Widget buildContextMenu(
       BuildContext context,
       EditableTextState editableTextState,
@@ -562,161 +640,180 @@ class ComposeBar extends HookConsumerWidget {
             onSelect: insertMention,
           ),
 
-        // Compose chrome — bottom-sheet style container.
-        Container(
-          decoration: BoxDecoration(
-            color: context.colors.surfaceContainerHighest,
-            borderRadius: !hasSuggestions
-                ? const BorderRadius.vertical(
-                    top: Radius.circular(Radii.dialog),
-                  )
-                : BorderRadius.zero,
-            boxShadow: !hasSuggestions
-                ? [
-                    BoxShadow(
-                      color: context.colors.shadow.withValues(alpha: 0.08),
-                      blurRadius: 8,
-                      offset: const Offset(0, -2),
-                    ),
-                  ]
-                : null,
-          ),
-          padding: EdgeInsets.only(
-            left: Grid.gutter,
-            right: Grid.gutter,
-            top: Grid.xs,
-            bottom: MediaQuery.viewPaddingOf(context).bottom + Grid.twelve,
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              // Formatting toolbar (toggled via Aa button).
-              if (showFormatting.value)
-                _FormattingToolbar(onFormat: applyFormat),
+        // Compose chrome — bottom-sheet style container, wrapped as the
+        // drop target so dragged files land straight in the attachment strip.
+        AttachmentDropRegion(
+          onFilesDropped: uploadDroppedFiles,
+          child: Container(
+            decoration: BoxDecoration(
+              color: context.colors.surfaceContainerHighest,
+              borderRadius: !hasSuggestions
+                  ? const BorderRadius.vertical(
+                      top: Radius.circular(Radii.dialog),
+                    )
+                  : BorderRadius.zero,
+              boxShadow: !hasSuggestions
+                  ? [
+                      BoxShadow(
+                        color: context.colors.shadow.withValues(alpha: 0.08),
+                        blurRadius: 8,
+                        offset: const Offset(0, -2),
+                      ),
+                    ]
+                  : null,
+            ),
+            padding: EdgeInsets.only(
+              left: Grid.gutter,
+              right: Grid.gutter,
+              top: Grid.xs,
+              bottom: MediaQuery.viewPaddingOf(context).bottom + Grid.twelve,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Formatting toolbar (toggled via Aa button).
+                if (showFormatting.value)
+                  _FormattingToolbar(onFormat: applyFormat),
 
-              if (hasAttachments || hasPendingUploads) ...[
-                _AttachmentStrip(
-                  attachments: attachments.value,
-                  uploadingCount: uploadingCount.value,
-                  onRemove: removeAttachment,
-                ),
-                const SizedBox(height: Grid.xxs),
-              ],
-
-              if (uploadError.value case final error?) ...[
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: Text(
-                    error,
-                    style: context.textTheme.bodySmall?.copyWith(
-                      color: context.colors.error,
-                    ),
+                if (hasAttachments || hasPendingUploads) ...[
+                  _AttachmentStrip(
+                    attachments: attachments.value,
+                    uploadingCount: uploadingCount.value,
+                    onRemove: removeAttachment,
                   ),
-                ),
-                const SizedBox(height: Grid.xxs),
-              ],
-
-              // Row 1 — text input (full width, grows).
-              TextField(
-                controller: controller,
-                focusNode: focusNode,
-                textInputAction: TextInputAction.send,
-                contextMenuBuilder: buildContextMenu,
-                contentInsertionConfiguration: ContentInsertionConfiguration(
-                  allowedMimeTypes: _pastedImageMimeTypes,
-                  onContentInserted: uploadPastedImage,
-                ),
-                onSubmitted: (_) => send(),
-                minLines: 1,
-                maxLines: 5,
-                style: context.textTheme.bodyMedium,
-                decoration: InputDecoration(
-                  hintText: resolvedHint,
-                  hintStyle: context.textTheme.bodyMedium?.copyWith(
-                    color: context.colors.onSurfaceVariant,
-                  ),
-                  border: InputBorder.none,
-                  enabledBorder: InputBorder.none,
-                  focusedBorder: InputBorder.none,
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: Grid.half,
-                    vertical: Grid.half,
-                  ),
-                  isDense: true,
-                ),
-              ),
-
-              const SizedBox(height: Grid.xxs),
-
-              // Row 2 — action buttons [paperclip, emoji, @, Aa] ... [send].
-              Row(
-                children: [
-                  _ComposeAction(
-                    icon: LucideIcons.paperclip,
-                    onTap: () {
-                      showModalBottomSheet<void>(
-                        context: context,
-                        showDragHandle: true,
-                        builder: (sheetContext) => SafeArea(
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              ListTile(
-                                leading: const Icon(LucideIcons.image),
-                                title: const Text('Photo'),
-                                onTap: () {
-                                  Navigator.of(sheetContext).pop();
-                                  pickAndUpload(
-                                    ref
-                                        .read(mediaUploadServiceProvider)
-                                        .pickAndUploadImage,
-                                  );
-                                },
-                              ),
-                              ListTile(
-                                leading: const Icon(LucideIcons.video),
-                                title: const Text('Video'),
-                                onTap: () {
-                                  Navigator.of(sheetContext).pop();
-                                  pickAndUpload(
-                                    ref
-                                        .read(mediaUploadServiceProvider)
-                                        .pickAndUploadVideo,
-                                  );
-                                },
-                              ),
-                            ],
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-                  _ComposeAction(
-                    icon: LucideIcons.smilePlus,
-                    onTap: () => showEmojiPicker(
-                      context: context,
-                      onSelect: insertEmoji,
-                    ),
-                  ),
-                  _ComposeAction(
-                    icon: LucideIcons.atSign,
-                    onTap: triggerMention,
-                  ),
-                  _ComposeAction(icon: LucideIcons.hash, onTap: triggerChannel),
-                  _ComposeAction(
-                    icon: LucideIcons.aLargeSmall,
-                    active: showFormatting.value,
-                    onTap: () => showFormatting.value = !showFormatting.value,
-                  ),
-                  const Spacer(),
-                  _SendButton(
-                    isDisabled: hasPendingUploads,
-                    isSending: isSending.value,
-                    onTap: send,
-                  ),
+                  const SizedBox(height: Grid.xxs),
                 ],
-              ),
-            ],
+
+                if (uploadError.value case final error?) ...[
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      error,
+                      style: context.textTheme.bodySmall?.copyWith(
+                        color: context.colors.error,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: Grid.xxs),
+                ],
+
+                // Row 1 — text input (full width, grows).
+                //
+                // The [Focus] wrapper handles hardware keyboards only:
+                // Enter/numpad Enter sends, Shift+Enter falls through to
+                // insert a newline. The soft-keyboard path stays on
+                // [TextInputAction.send] / [TextField.onSubmitted].
+                Focus(
+                  canRequestFocus: false,
+                  skipTraversal: true,
+                  onKeyEvent: (_, event) =>
+                      _handleComposerKey(event, controller, send),
+                  child: TextField(
+                    controller: controller,
+                    focusNode: focusNode,
+                    textInputAction: TextInputAction.send,
+                    contextMenuBuilder: buildContextMenu,
+                    contentInsertionConfiguration:
+                        ContentInsertionConfiguration(
+                          allowedMimeTypes: _pastedImageMimeTypes,
+                          onContentInserted: uploadPastedImage,
+                        ),
+                    onSubmitted: (_) => send(),
+                    minLines: 1,
+                    maxLines: 5,
+                    style: context.textTheme.bodyMedium,
+                    decoration: InputDecoration(
+                      hintText: resolvedHint,
+                      hintStyle: context.textTheme.bodyMedium?.copyWith(
+                        color: context.colors.onSurfaceVariant,
+                      ),
+                      border: InputBorder.none,
+                      enabledBorder: InputBorder.none,
+                      focusedBorder: InputBorder.none,
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: Grid.half,
+                        vertical: Grid.half,
+                      ),
+                      isDense: true,
+                    ),
+                  ),
+                ),
+
+                const SizedBox(height: Grid.xxs),
+
+                // Row 2 — action buttons [paperclip, emoji, @, Aa] ... [send].
+                Row(
+                  children: [
+                    _ComposeAction(
+                      icon: LucideIcons.paperclip,
+                      onTap: () {
+                        showAdaptiveModal<void>(
+                          context,
+                          showDragHandle: true,
+                          builder: (sheetContext) => SafeArea(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                ListTile(
+                                  leading: const Icon(LucideIcons.image),
+                                  title: const Text('Photo'),
+                                  onTap: () {
+                                    Navigator.of(sheetContext).pop();
+                                    pickAndUpload(
+                                      ref
+                                          .read(mediaUploadServiceProvider)
+                                          .pickAndUploadImage,
+                                    );
+                                  },
+                                ),
+                                ListTile(
+                                  leading: const Icon(LucideIcons.video),
+                                  title: const Text('Video'),
+                                  onTap: () {
+                                    Navigator.of(sheetContext).pop();
+                                    pickAndUpload(
+                                      ref
+                                          .read(mediaUploadServiceProvider)
+                                          .pickAndUploadVideo,
+                                    );
+                                  },
+                                ),
+                              ],
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                    _ComposeAction(
+                      icon: LucideIcons.smilePlus,
+                      onTap: () => showEmojiPicker(
+                        context: context,
+                        onSelect: insertEmoji,
+                      ),
+                    ),
+                    _ComposeAction(
+                      icon: LucideIcons.atSign,
+                      onTap: triggerMention,
+                    ),
+                    _ComposeAction(
+                      icon: LucideIcons.hash,
+                      onTap: triggerChannel,
+                    ),
+                    _ComposeAction(
+                      icon: LucideIcons.aLargeSmall,
+                      active: showFormatting.value,
+                      onTap: () => showFormatting.value = !showFormatting.value,
+                    ),
+                    const Spacer(),
+                    _SendButton(
+                      isDisabled: hasPendingUploads,
+                      isSending: isSending.value,
+                      onTap: send,
+                    ),
+                  ],
+                ),
+              ],
+            ),
           ),
         ),
       ],

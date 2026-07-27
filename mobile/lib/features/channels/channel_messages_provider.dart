@@ -19,7 +19,13 @@ class ChannelMessagesNotifier extends Notifier<AsyncValue<List<NostrEvent>>> {
   int _initVersion = 0;
   ChannelWindowStore _windowStore = const ChannelWindowStore.empty();
   final Map<String, NostrEvent> _deepLinkEvents = {};
-  final Set<String> _retainedDeepLinkEventIds = {};
+
+  /// Refcount of active pins per deep-link event id.
+  ///
+  /// Several owners (the channel view and the thread side panel) can pin the
+  /// same id at once, so retention is counted rather than a plain set: the
+  /// event is only unpinned once the last owner releases it.
+  final Map<String, int> _retainedDeepLinkEventIds = {};
 
   ChannelMessagesNotifier(this.channelId);
 
@@ -248,11 +254,30 @@ class ChannelMessagesNotifier extends Notifier<AsyncValue<List<NostrEvent>>> {
 
   bool get reachedOldest => _reachedOldest;
 
+  /// Pins [eventIds] into subsequent window rebuilds until a matching
+  /// [releaseDeepLinkEvents] call.
+  ///
+  /// Retention is refcounted, so an owner that outlives another owner of the
+  /// same id keeps its pin. Every call must be balanced by exactly one
+  /// [releaseDeepLinkEvents] call for the same ids.
+  void retainDeepLinkEvents(Iterable<String> eventIds) {
+    for (final id in eventIds) {
+      _retainedDeepLinkEventIds.update(
+        id,
+        (count) => count + 1,
+        ifAbsent: () => 1,
+      );
+    }
+  }
+
   /// Loads specific deep-link targets that may fall outside the newest window.
+  ///
+  /// Acquires one retention pin per non-empty id, so every call must be
+  /// balanced by a matching [releaseDeepLinkEvents] call.
   Future<void> loadEventsById(Iterable<String> eventIds) async {
     final ids = eventIds.where((id) => id.isNotEmpty).toSet();
     if (ids.isEmpty) return;
-    _retainedDeepLinkEventIds.addAll(ids);
+    retainDeepLinkEvents(ids);
 
     final existing = state.value ?? const <NostrEvent>[];
     for (final event in existing) {
@@ -272,7 +297,7 @@ class ChannelMessagesNotifier extends Notifier<AsyncValue<List<NostrEvent>>> {
         );
     for (final event in events) {
       if (event.channelId == channelId &&
-          _retainedDeepLinkEventIds.contains(event.id)) {
+          _retainedDeepLinkEventIds.containsKey(event.id)) {
         _deepLinkEvents[event.id] = event;
       }
     }
@@ -288,9 +313,15 @@ class ChannelMessagesNotifier extends Notifier<AsyncValue<List<NostrEvent>>> {
     state = AsyncData(merged);
   }
 
-  /// Stops pinning deep-link-only events into subsequent window rebuilds.
+  /// Drops one retention pin per id, unpinning deep-link-only events from
+  /// subsequent window rebuilds once the last owner has released them.
   void releaseDeepLinkEvents(Iterable<String> eventIds) {
     for (final id in eventIds) {
+      final remaining = (_retainedDeepLinkEventIds[id] ?? 0) - 1;
+      if (remaining > 0) {
+        _retainedDeepLinkEventIds[id] = remaining;
+        continue;
+      }
       _retainedDeepLinkEventIds.remove(id);
       _deepLinkEvents.remove(id);
     }

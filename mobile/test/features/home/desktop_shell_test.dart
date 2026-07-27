@@ -1,15 +1,25 @@
+import 'package:buzz/features/activity/activity_page.dart';
+import 'package:buzz/features/activity/activity_provider.dart';
+import 'package:buzz/features/activity/feed_item.dart';
 import 'package:buzz/features/channels/channel.dart';
+import 'package:buzz/features/channels/channel_workspace.dart';
+import 'package:buzz/features/channels/channels_page.dart';
 import 'package:buzz/features/channels/channels_provider.dart';
 import 'package:buzz/features/channels/unread_badge/observed_unread_event.dart';
+import 'package:buzz/features/channels/unread_badge/unread_badge_provider.dart';
 import 'package:buzz/features/home/desktop_shell.dart';
 import 'package:buzz/features/profile/profile_provider.dart';
 import 'package:buzz/features/profile/user_profile.dart';
+import 'package:buzz/features/pulse/pulse_models.dart';
+import 'package:buzz/features/pulse/pulse_page.dart';
+import 'package:buzz/features/pulse/pulse_provider.dart';
 import 'package:buzz/shared/community/community.dart';
 import 'package:buzz/shared/community/community_provider.dart';
 import 'package:buzz/shared/shell/shell_state.dart';
 import 'package:buzz/shared/shell/shell_state_provider.dart';
 import 'package:buzz/shared/theme/theme.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 
@@ -48,7 +58,9 @@ void main() {
     addTearDown(tester.view.reset);
   }
 
-  (ProviderContainer, _FakeCommunityListNotifier) createContainer() {
+  (ProviderContainer, _FakeCommunityListNotifier) createContainer({
+    UnreadBadgeState? unreadBadge,
+  }) {
     final communities = [_communityA, _communityB];
     final communityList = _FakeCommunityListNotifier(communities);
     final container = ProviderContainer(
@@ -63,6 +75,13 @@ void main() {
         ),
         profileProvider.overrideWith(() => _FakeProfileNotifier()),
         presenceProvider.overrideWith(() => _FakePresenceNotifier()),
+        activityProvider.overrideWith(() => _FakeActivityNotifier()),
+        // The Pulse destination mounts PulsePage, whose feed providers would
+        // otherwise open relay fetches (and their timers) during the test.
+        globalNotesProvider.overrideWith((ref) async => const <UserNote>[]),
+        agentPubkeysProvider.overrideWith((ref) async => const <String>[]),
+        if (unreadBadge != null)
+          unreadBadgeProvider.overrideWithValue(unreadBadge),
       ],
     );
     addTearDown(container.dispose);
@@ -164,6 +183,193 @@ void main() {
       ShellMainContent.channels,
     );
   });
+
+  group('pulse destination', () {
+    testWidgets('the rail button swaps the main content to Pulse', (
+      tester,
+    ) async {
+      useWideSurface(tester);
+      final (container, _) = createContainer();
+
+      await tester.pumpWidget(buildTestable(container));
+      await tester.pumpAndSettle();
+      expect(find.byType(ChannelWorkspace), findsOneWidget);
+      expect(find.byType(PulsePage), findsNothing);
+
+      await tester.tap(find.byKey(const ValueKey('community-rail-pulse')));
+      await tester.pumpAndSettle();
+
+      expect(
+        container.read(shellStateProvider).mainContent,
+        ShellMainContent.pulse,
+      );
+      expect(find.byType(PulsePage), findsOneWidget);
+      expect(find.byType(ChannelWorkspace), findsNothing);
+      expect(find.byType(ChannelsPage), findsNothing);
+    });
+
+    testWidgets('selecting a channel returns the content to channels', (
+      tester,
+    ) async {
+      useWideSurface(tester);
+      final (container, _) = createContainer();
+
+      await tester.pumpWidget(buildTestable(container));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('community-rail-pulse')));
+      await tester.pumpAndSettle();
+      expect(find.byType(PulsePage), findsOneWidget);
+
+      // The id matches no loaded channel, keeping the workspace on its light
+      // empty state while still proving the content region switched back.
+      container.read(shellStateProvider.notifier).selectChannel('missing');
+      await tester.pumpAndSettle();
+
+      expect(
+        container.read(shellStateProvider).mainContent,
+        ShellMainContent.channels,
+      );
+      expect(find.byType(PulsePage), findsNothing);
+      expect(find.byType(ChannelWorkspace), findsOneWidget);
+    });
+  });
+
+  group('activity side panel', () {
+    testWidgets('the bell toggles the panel as a right-edge overlay', (
+      tester,
+    ) async {
+      useWideSurface(tester);
+      final (container, _) = createContainer();
+
+      await tester.pumpWidget(buildTestable(container));
+      await tester.pumpAndSettle();
+      expect(find.byType(ActivityView), findsNothing);
+
+      await tester.tap(find.byKey(const ValueKey('community-rail-activity')));
+      await tester.pumpAndSettle();
+
+      expect(
+        container.read(shellStateProvider).sidePanel,
+        isA<ShellSidePanelActivity>(),
+      );
+      expect(find.byType(ActivityView), findsOneWidget);
+      final panel = find.byType(SidePanelSurface);
+      expect(tester.getSize(panel).width, kSidePanelWidth);
+      expect(tester.getTopRight(panel).dx, 1440);
+      // Overlay: the three shell panes stay mounted beneath it.
+      expect(find.text('general'), findsOneWidget);
+
+      await tester.tap(find.byKey(const ValueKey('community-rail-activity')));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(ActivityView), findsNothing);
+      expect(
+        container.read(shellStateProvider).sidePanel,
+        isA<ShellSidePanelNone>(),
+      );
+    });
+
+    testWidgets('the embedded panel drops the floating app-bar top inset', (
+      tester,
+    ) async {
+      useWideSurface(tester);
+      final (container, _) = createContainer();
+
+      await tester.pumpWidget(buildTestable(container));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('community-rail-activity')));
+      await tester.pumpAndSettle();
+
+      // The panel header replaces the page's floating FrostedAppBar, so the
+      // page's clearance (frostedAppBarHeight, 48 with no status bar) would
+      // sit between the header and the first feed row as dead space.
+      expect(
+        find.descendant(
+          of: find.byType(ActivityView),
+          matching: find.byWidgetPredicate(
+            (widget) =>
+                widget is Padding &&
+                widget.padding == const EdgeInsets.only(top: Grid.xxs),
+          ),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: find.byType(ActivityView),
+          matching: find.byWidgetPredicate(
+            (widget) =>
+                widget is Padding &&
+                widget.padding == const EdgeInsets.only(top: 48),
+          ),
+        ),
+        findsNothing,
+      );
+    });
+
+    testWidgets('opening a thread panel closes the activity panel', (
+      tester,
+    ) async {
+      useWideSurface(tester);
+      final (container, _) = createContainer();
+
+      await tester.pumpWidget(buildTestable(container));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('community-rail-activity')));
+      await tester.pumpAndSettle();
+      expect(find.byType(ActivityView), findsOneWidget);
+
+      container.read(shellStateProvider.notifier).openThreadPanel('root-1');
+      await tester.pumpAndSettle();
+
+      expect(find.byType(ActivityView), findsNothing);
+      expect(
+        container.read(shellStateProvider).sidePanel,
+        isA<ShellSidePanelThread>(),
+      );
+    });
+
+    testWidgets('Esc closes the open side panel', (tester) async {
+      useWideSurface(tester);
+      final (container, _) = createContainer();
+
+      await tester.pumpWidget(buildTestable(container));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('community-rail-activity')));
+      await tester.pumpAndSettle();
+      expect(find.byType(ActivityView), findsOneWidget);
+
+      // No text field holds focus: the shell's autofocus node carries the
+      // binding.
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pumpAndSettle();
+
+      expect(find.byType(ActivityView), findsNothing);
+      expect(
+        container.read(shellStateProvider).sidePanel,
+        isA<ShellSidePanelNone>(),
+      );
+    });
+
+    testWidgets('the bell renders the unread badge count', (tester) async {
+      useWideSurface(tester);
+      final (container, _) = createContainer(
+        unreadBadge: const UnreadBadgeState(
+          highPriorityCount: 2,
+          generalUnreadCount: 1,
+        ),
+      );
+
+      await tester.pumpWidget(buildTestable(container));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const ValueKey('community-rail-activity-badge')),
+        findsOneWidget,
+      );
+      expect(find.text('3'), findsOneWidget);
+    });
+  });
 }
 
 class _ActiveCommunityIdNotifier extends Notifier<String> {
@@ -219,4 +425,14 @@ class _FakeProfileNotifier extends ProfileNotifier {
 class _FakePresenceNotifier extends PresenceNotifier {
   @override
   Future<String> build() async => 'online';
+}
+
+class _FakeActivityNotifier extends ActivityNotifier {
+  @override
+  Future<HomeFeedResponse> build() async => HomeFeedResponse(
+    mentions: const [],
+    needsAction: const [],
+    activity: const [],
+    agentActivity: const [],
+  );
 }

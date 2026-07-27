@@ -83,8 +83,8 @@ class _MembersButton extends ConsumerWidget {
 
     return IconButton(
       onPressed: () {
-        showModalBottomSheet<void>(
-          context: context,
+        showAdaptiveModal<void>(
+          context,
           isScrollControlled: true,
           showDragHandle: true,
           builder: (_) =>

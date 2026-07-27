@@ -4,6 +4,7 @@ import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../shared/theme/theme.dart';
+import '../../shared/widgets/adaptive_modal.dart';
 import '../../shared/widgets/avatar_image.dart';
 import '../channels/message_content.dart';
 import '../profile/user_cache_provider.dart';
@@ -178,8 +179,8 @@ class ForumPostCard extends ConsumerWidget {
         currentPubkey != null &&
         post.pubkey.toLowerCase() == currentPubkey!.toLowerCase();
 
-    showModalBottomSheet<void>(
-      context: context,
+    showAdaptiveModal<void>(
+      context,
       showDragHandle: true,
       builder: (sheetContext) => SafeArea(
         child: Padding(

@@ -3,6 +3,7 @@ import 'package:flutter_hooks/flutter_hooks.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 
 import '../../shared/theme/theme.dart';
+import '../../shared/widgets/adaptive_modal.dart';
 import '../../shared/widgets/avatar_image.dart';
 import '../custom_emoji/custom_emoji_render.dart';
 import '../profile/user_cache_provider.dart';
@@ -115,8 +116,8 @@ void showReactionDetailSheet({
   required List<TimelineReaction> reactions,
   required String initialEmoji,
 }) {
-  showModalBottomSheet<void>(
-    context: context,
+  showAdaptiveModal<void>(
+    context,
     isScrollControlled: true,
     showDragHandle: true,
     backgroundColor: context.colors.surfaceContainerHighest,

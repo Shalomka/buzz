@@ -4,8 +4,9 @@ part of '../desktop_shell.dart';
 ///
 /// Lists community avatar buttons (tap an inactive community to switch to
 /// it; tap the active one to show the channels content), an add-community
-/// button, and the profile avatar (opens Settings). Part 3 adds the
-/// activity-bell button and Part 4 the Pulse destination.
+/// button, the Pulse destination (swaps the main pane to the Pulse feed),
+/// the activity bell (toggles the shell's activity side panel), and the
+/// profile avatar (opens Settings).
 class CommunityRail extends ConsumerWidget {
   const CommunityRail({super.key});
 
@@ -45,6 +46,9 @@ class CommunityRail extends ConsumerWidget {
                 ],
               ),
             ),
+            const _PulseButton(),
+            const _ActivityBellButton(),
+            const SizedBox(height: Grid.xxs),
             ProfileAvatar(
               onTap: () => Navigator.of(context).push(
                 MaterialPageRoute<void>(builder: (_) => const SettingsPage()),
@@ -120,6 +124,100 @@ class _CommunityRailButton extends ConsumerWidget {
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// Rail button showing the Pulse feed in the shell's main pane.
+///
+/// Selecting a channel switches the pane back to channels, so this reads as a
+/// destination rather than a toggle.
+class _PulseButton extends ConsumerWidget {
+  const _PulseButton();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final isActive = ref.watch(
+      shellStateProvider.select(
+        (state) => state.mainContent == ShellMainContent.pulse,
+      ),
+    );
+
+    return Center(
+      child: IconButton(
+        key: const ValueKey('community-rail-pulse'),
+        tooltip: 'Pulse',
+        onPressed: () => ref.read(shellStateProvider.notifier).showPulse(),
+        icon: Icon(
+          LucideIcons.activity,
+          color: isActive
+              ? context.colors.primary
+              : context.colors.onSurfaceVariant,
+        ),
+      ),
+    );
+  }
+}
+
+/// Rail button toggling the activity side panel, badged with the unread
+/// counts from [unreadBadgeProvider].
+class _ActivityBellButton extends ConsumerWidget {
+  const _ActivityBellButton();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final badge = ref.watch(unreadBadgeProvider);
+    final isOpen = ref.watch(
+      shellStateProvider.select(
+        (state) => state.sidePanel is ShellSidePanelActivity,
+      ),
+    );
+    final count = badge.highPriorityCount + badge.generalUnreadCount;
+
+    return Center(
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          IconButton(
+            key: const ValueKey('community-rail-activity'),
+            tooltip: 'Activity',
+            onPressed: () =>
+                ref.read(shellStateProvider.notifier).toggleActivityPanel(),
+            icon: Icon(
+              LucideIcons.bell,
+              color: isOpen
+                  ? context.colors.primary
+                  : context.colors.onSurfaceVariant,
+            ),
+          ),
+          if (count > 0)
+            Positioned(
+              top: Grid.quarter,
+              right: Grid.quarter,
+              child: Container(
+                key: const ValueKey('community-rail-activity-badge'),
+                padding: const EdgeInsets.symmetric(horizontal: Grid.quarter),
+                constraints: const BoxConstraints(minWidth: 16),
+                decoration: BoxDecoration(
+                  color: badge.highPriorityCount > 0
+                      ? context.colors.error
+                      : context.colors.primary,
+                  borderRadius: BorderRadius.circular(Radii.sm),
+                ),
+                child: Text(
+                  count > 99 ? '99+' : '$count',
+                  textAlign: TextAlign.center,
+                  style: context.textTheme.labelSmall?.copyWith(
+                    color: badge.highPriorityCount > 0
+                        ? context.colors.onError
+                        : context.colors.onPrimary,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }
