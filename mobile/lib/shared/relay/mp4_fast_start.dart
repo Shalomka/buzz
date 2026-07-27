@@ -8,7 +8,6 @@ const _maxBoxDepth = 32;
 const _maxMoovBytes = 64 * 1024 * 1024;
 const _copyBufferBytes = 1024 * 1024;
 const _uint32Max = 0xffffffff;
-const _uint64Max = 0x7fffffffffffffff;
 const _containerTypes = {
   'moov',
   'trak',
@@ -329,10 +328,11 @@ void _patchCo64(
     final entry = start + 8 + index * 8;
     final value = data.getUint64(entry, Endian.big);
     if (value >= movedRegionStart && value < movedRegionEnd) {
+      // No 64-bit overflow guard here: `int` is exactly 64-bit signed on the
+      // VM, so `adjusted` can never exceed 0x7fffffffffffffff — the former
+      // check was vacuous. The literal also cannot be represented exactly in
+      // JavaScript, which broke the dart2js build.
       final adjusted = value + delta;
-      if (adjusted > _uint64Max) {
-        throw const FormatException('co64 offset overflow');
-      }
       data.setUint64(entry, adjusted, Endian.big);
     }
   }
