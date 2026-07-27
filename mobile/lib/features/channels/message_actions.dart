@@ -3,6 +3,8 @@ import 'package:flutter/services.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
+import '../../shared/layout/breakpoints.dart';
+import '../../shared/shell/shell_state_provider.dart';
 import '../../shared/theme/theme.dart';
 import '../custom_emoji/custom_emoji.dart';
 import '../custom_emoji/custom_emoji_provider.dart';
@@ -103,7 +105,14 @@ void showMessageActions({
                 leading: const Icon(LucideIcons.messageSquareReply),
                 title: const Text('Reply in thread'),
                 onTap: () {
+                  // Close the actions surface first, then open the thread.
                   Navigator.of(sheetContext).pop();
+                  if (isExpandedLayout(context)) {
+                    ref
+                        .read(shellStateProvider.notifier)
+                        .openThreadPanel(message.id);
+                    return;
+                  }
                   Navigator.of(context).push(
                     MaterialPageRoute<void>(
                       builder: (_) => ThreadDetailPage(

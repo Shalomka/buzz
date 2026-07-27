@@ -1,12 +1,30 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:flutter_hooks/flutter_hooks.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
+import '../../shared/shell/shell_state.dart';
 import '../../shared/shell/shell_state_provider.dart';
 import '../../shared/theme/theme.dart';
+import '../forum/forum_thread_page.dart';
+import '../profile/profile_provider.dart';
 import 'channel.dart';
 import 'channel_detail_page.dart';
+import 'channel_messages_provider.dart';
 import 'channels_provider.dart';
+import 'thread_detail_page.dart';
+import 'timeline_message.dart';
+
+/// Width of the desktop shell's right-edge overlay side panel.
+///
+/// Phase 1 presents every side panel as an overlay at every expanded width;
+/// this constant is the single retuning point for Phase 0 visual QA.
+const double kSidePanelWidth = 360;
+
+/// Elevation of the overlay side-panel surface.
+const double kSidePanelElevation = 8;
 
 /// Message pane of the desktop shell.
 ///
@@ -17,6 +35,10 @@ import 'channels_provider.dart';
 /// repeated identical deep link — remounts the view. Remounting re-runs the
 /// view's keyed hooks, reproducing the fresh-route-per-navigation read-state
 /// semantics of the mobile push flow.
+///
+/// The thread and forum-thread side panels render as a right-edge overlay
+/// above the message pane; the activity panel is shell-level and lives in
+/// the desktop shell's `SidePanelHost`.
 class ChannelWorkspace extends HookConsumerWidget {
   const ChannelWorkspace({super.key});
 
@@ -55,21 +77,215 @@ class ChannelWorkspace extends HookConsumerWidget {
             initialThreadRootId: shellState.pendingInitialThreadRootId,
           ),
         ),
-        // Right-edge side-panel slot: Part 3 renders the thread/forum/
-        // activity overlay panels here. Keep the Stack structure.
-        const Positioned(top: 0, bottom: 0, right: 0, child: _SidePanelSlot()),
+        // Right-edge side-panel slot: the thread and forum-thread overlays
+        // render here. Keep the Stack structure.
+        Positioned(
+          top: 0,
+          bottom: 0,
+          right: 0,
+          child: _SidePanelSlot(
+            channel: channel,
+            sidePanel: shellState.sidePanel,
+          ),
+        ),
       ],
     );
   }
 }
 
-/// Placeholder host for the right-edge overlay side panel (thread, forum
-/// thread, activity). Filled in Part 3 — do not remove.
-class _SidePanelSlot extends StatelessWidget {
-  const _SidePanelSlot();
+/// Right-edge overlay surface shared by every desktop-shell side panel.
+///
+/// Renders a fixed-width elevated column with a titled header and a close
+/// button wired to `closeSidePanel()`; the message pane stays visible
+/// beneath it. Also used by the shell-level activity panel host.
+class SidePanelSurface extends ConsumerWidget {
+  /// Header title of the panel.
+  final String title;
+
+  /// Panel body rendered below the header.
+  final Widget child;
+
+  const SidePanelSurface({super.key, required this.title, required this.child});
 
   @override
-  Widget build(BuildContext context) => const SizedBox.shrink();
+  Widget build(BuildContext context, WidgetRef ref) {
+    return SizedBox(
+      width: kSidePanelWidth,
+      child: Material(
+        elevation: kSidePanelElevation,
+        color: context.colors.surface,
+        child: Column(
+          children: [
+            Container(
+              padding: const EdgeInsets.only(left: Grid.xs, right: Grid.half),
+              decoration: BoxDecoration(
+                border: Border(
+                  bottom: BorderSide(color: context.colors.outlineVariant),
+                ),
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      title,
+                      style: context.textTheme.titleSmall,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  IconButton(
+                    key: const ValueKey('side-panel-close'),
+                    tooltip: 'Close panel',
+                    onPressed: () =>
+                        ref.read(shellStateProvider.notifier).closeSidePanel(),
+                    icon: const Icon(LucideIcons.x, size: 18),
+                  ),
+                ],
+              ),
+            ),
+            Expanded(child: child),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Resolves the open side panel to its overlay content.
+///
+/// The activity panel is shell-level (see `SidePanelHost`), so it renders
+/// nothing here.
+class _SidePanelSlot extends StatelessWidget {
+  final Channel channel;
+  final ShellSidePanel sidePanel;
+
+  const _SidePanelSlot({required this.channel, required this.sidePanel});
+
+  @override
+  Widget build(BuildContext context) {
+    return switch (sidePanel) {
+      ShellSidePanelThread(:final rootId, :final initialMessageId) =>
+        SidePanelSurface(
+          title: 'Thread',
+          child: _ThreadPanelBody(
+            channel: channel,
+            rootId: rootId,
+            initialMessageId: initialMessageId,
+          ),
+        ),
+      ShellSidePanelForumThread(:final postEventId) => SidePanelSurface(
+        title: 'Thread',
+        child: _ForumThreadPanelBody(
+          channel: channel,
+          postEventId: postEventId,
+        ),
+      ),
+      ShellSidePanelNone() ||
+      ShellSidePanelActivity() => const SizedBox.shrink(),
+    };
+  }
+}
+
+/// Thread panel body: resolves the thread head and hosts a [ThreadView].
+class _ThreadPanelBody extends HookConsumerWidget {
+  final Channel channel;
+  final String rootId;
+  final String? initialMessageId;
+
+  const _ThreadPanelBody({
+    required this.channel,
+    required this.rootId,
+    required this.initialMessageId,
+  });
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final currentPubkey = ref
+        .watch(profileProvider)
+        .whenData((value) => value?.pubkey)
+        .value;
+    final messagesState = ref.watch(channelMessagesProvider(channel.id));
+
+    // Format every loaded event, not just the main timeline: the main
+    // timeline holds roots and broadcast replies only, so a nested-thread
+    // open (a reply ID as root) would never resolve against it.
+    final messages = formatTimeline(
+      messagesState.value ?? const [],
+      currentPubkey: currentPubkey,
+    );
+    final threadHead = messages
+        .where((message) => message.id == rootId)
+        .firstOrNull;
+    final hasThreadHead = threadHead != null;
+
+    // Thread roots outside the loaded window are fetched with the same
+    // deep-link loader the channel view uses, so the panel resolves instead
+    // of spinning forever.
+    useEffect(() {
+      if (hasThreadHead) return null;
+      final notifier = ref.read(channelMessagesProvider(channel.id).notifier);
+      // Deferred: the effect runs inside the build phase, where widening the
+      // message window would be a provider write during a build.
+      unawaited(
+        Future<void>.microtask(() => _loadThreadRoot(notifier, rootId)),
+      );
+      return () => notifier.releaseDeepLinkEvents({rootId});
+    }, [channel.id, rootId]);
+
+    if (threadHead == null) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    return ThreadView(
+      key: ValueKey(rootId),
+      threadHead: threadHead,
+      allMessages: messages,
+      channelId: channel.id,
+      currentPubkey: currentPubkey,
+      isMember: channel.isMember,
+      isArchived: channel.isArchived,
+      initialMessageId: initialMessageId,
+    );
+  }
+}
+
+/// Forum-thread panel body: hosts a [ForumThreadView] for the open post.
+class _ForumThreadPanelBody extends ConsumerWidget {
+  final Channel channel;
+  final String postEventId;
+
+  const _ForumThreadPanelBody({
+    required this.channel,
+    required this.postEventId,
+  });
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final currentPubkey = ref
+        .watch(profileProvider)
+        .whenData((value) => value?.pubkey)
+        .value;
+
+    return ForumThreadView(
+      key: ValueKey(postEventId),
+      channelId: channel.id,
+      postEventId: postEventId,
+      currentPubkey: currentPubkey,
+      isMember: channel.isMember,
+      isArchived: channel.isArchived,
+    );
+  }
+}
+
+/// Fetch a thread root that may be outside the loaded channel window.
+Future<void> _loadThreadRoot(
+  ChannelMessagesNotifier notifier,
+  String rootId,
+) async {
+  try {
+    await notifier.loadEventsById({rootId});
+  } catch (error) {
+    debugPrint('side panel: failed to load thread root: $error');
+  }
 }
 
 class _WorkspaceEmptyState extends StatelessWidget {

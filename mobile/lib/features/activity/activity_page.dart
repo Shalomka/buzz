@@ -18,8 +18,29 @@ import 'feed_item.dart';
 
 enum _Filter { all, mentions, needsAction, activity, agents }
 
-class ActivityPage extends HookConsumerWidget {
+/// Full-window route wrapper around [ActivityView].
+///
+/// Keeps the push-navigation contract used at narrow widths; the desktop
+/// shell embeds [ActivityView] in its side panel instead of pushing this
+/// page.
+class ActivityPage extends StatelessWidget {
   const ActivityPage({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return const FrostedScaffold(
+      appBar: FrostedAppBar(title: Text('Activity')),
+      body: ActivityView(),
+    );
+  }
+}
+
+/// The activity feed: category filter chips over the filtered feed list.
+///
+/// Extracted move-only from [ActivityPage] so the desktop shell can embed
+/// the same view in its side panel without a route push.
+class ActivityView extends HookConsumerWidget {
+  const ActivityView({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -109,14 +130,11 @@ class ActivityPage extends HookConsumerWidget {
       body = const _LoadingSkeleton();
     }
 
-    return FrostedScaffold(
-      appBar: const FrostedAppBar(title: Text('Activity')),
-      body: SafeArea(
-        top: false,
-        child: Padding(
-          padding: EdgeInsets.only(top: frostedAppBarHeight(context)),
-          child: body,
-        ),
+    return SafeArea(
+      top: false,
+      child: Padding(
+        padding: EdgeInsets.only(top: frostedAppBarHeight(context)),
+        child: body,
       ),
     );
   }

@@ -160,6 +160,10 @@ class _ThreadSummaryRow extends ConsumerWidget {
 
     return GestureDetector(
       onTap: () {
+        if (isExpandedLayout(context)) {
+          ref.read(shellStateProvider.notifier).openThreadPanel(message.id);
+          return;
+        }
         Navigator.of(context).push(
           MaterialPageRoute<void>(
             builder: (_) => ThreadDetailPage(

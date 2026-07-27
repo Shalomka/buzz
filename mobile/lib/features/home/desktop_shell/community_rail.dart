@@ -4,8 +4,8 @@ part of '../desktop_shell.dart';
 ///
 /// Lists community avatar buttons (tap an inactive community to switch to
 /// it; tap the active one to show the channels content), an add-community
-/// button, and the profile avatar (opens Settings). Part 3 adds the
-/// activity-bell button and Part 4 the Pulse destination.
+/// button, the activity bell (toggles the shell's activity side panel), and
+/// the profile avatar (opens Settings). Part 4 adds the Pulse destination.
 class CommunityRail extends ConsumerWidget {
   const CommunityRail({super.key});
 
@@ -45,6 +45,8 @@ class CommunityRail extends ConsumerWidget {
                 ],
               ),
             ),
+            const _ActivityBellButton(),
+            const SizedBox(height: Grid.xxs),
             ProfileAvatar(
               onTap: () => Navigator.of(context).push(
                 MaterialPageRoute<void>(builder: (_) => const SettingsPage()),
@@ -120,6 +122,69 @@ class _CommunityRailButton extends ConsumerWidget {
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// Rail button toggling the activity side panel, badged with the unread
+/// counts from [unreadBadgeProvider].
+class _ActivityBellButton extends ConsumerWidget {
+  const _ActivityBellButton();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final badge = ref.watch(unreadBadgeProvider);
+    final isOpen = ref.watch(
+      shellStateProvider.select(
+        (state) => state.sidePanel is ShellSidePanelActivity,
+      ),
+    );
+    final count = badge.highPriorityCount + badge.generalUnreadCount;
+
+    return Center(
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          IconButton(
+            key: const ValueKey('community-rail-activity'),
+            tooltip: 'Activity',
+            onPressed: () =>
+                ref.read(shellStateProvider.notifier).toggleActivityPanel(),
+            icon: Icon(
+              LucideIcons.bell,
+              color: isOpen
+                  ? context.colors.primary
+                  : context.colors.onSurfaceVariant,
+            ),
+          ),
+          if (count > 0)
+            Positioned(
+              top: Grid.quarter,
+              right: Grid.quarter,
+              child: Container(
+                key: const ValueKey('community-rail-activity-badge'),
+                padding: const EdgeInsets.symmetric(horizontal: Grid.quarter),
+                constraints: const BoxConstraints(minWidth: 16),
+                decoration: BoxDecoration(
+                  color: badge.highPriorityCount > 0
+                      ? context.colors.error
+                      : context.colors.primary,
+                  borderRadius: BorderRadius.circular(Radii.sm),
+                ),
+                child: Text(
+                  count > 99 ? '99+' : '$count',
+                  textAlign: TextAlign.center,
+                  style: context.textTheme.labelSmall?.copyWith(
+                    color: badge.highPriorityCount > 0
+                        ? context.colors.onError
+                        : context.colors.onPrimary,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }

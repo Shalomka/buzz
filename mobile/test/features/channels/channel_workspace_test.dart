@@ -6,10 +6,17 @@ import 'package:buzz/features/channels/channel_typing_provider.dart';
 import 'package:buzz/features/channels/channel_workspace.dart';
 import 'package:buzz/features/channels/channels_provider.dart';
 import 'package:buzz/features/channels/read_state/read_state_provider.dart';
+import 'package:buzz/features/channels/thread_detail_page.dart';
+import 'package:buzz/features/channels/thread_replies_provider.dart';
+import 'package:buzz/features/forum/forum_models.dart';
+import 'package:buzz/features/forum/forum_post_card.dart';
+import 'package:buzz/features/forum/forum_provider.dart';
+import 'package:buzz/features/forum/forum_thread_page.dart';
 import 'package:buzz/features/profile/profile_provider.dart';
 import 'package:buzz/features/profile/user_cache_provider.dart';
 import 'package:buzz/features/profile/user_profile.dart';
 import 'package:buzz/shared/relay/relay.dart';
+import 'package:buzz/shared/shell/shell_state.dart';
 import 'package:buzz/shared/shell/shell_state_provider.dart';
 import 'package:buzz/shared/theme/theme.dart';
 import 'package:flutter/material.dart';
@@ -42,6 +49,58 @@ final _channelB = Channel(
   lastMessageAt: DateTime.fromMillisecondsSinceEpoch(2000 * 1000, isUtc: true),
 );
 
+final _forumChannel = Channel(
+  id: 'channel-forum',
+  name: 'gamma',
+  channelType: 'forum',
+  visibility: 'open',
+  description: 'Gamma forum',
+  createdBy: 'creator',
+  createdAt: DateTime(2026),
+  memberCount: 3,
+  isMember: true,
+  lastMessageAt: DateTime.fromMillisecondsSinceEpoch(3000 * 1000, isUtc: true),
+);
+
+/// Build a kind:9 channel message event. Passing [parentId] marks it as a
+/// (non-broadcast) reply, so it stays out of the main timeline.
+NostrEvent _messageEvent({
+  required String id,
+  required String content,
+  String pubkey = 'author',
+  int createdAt = 100,
+  String? parentId,
+  String? rootId,
+}) {
+  return NostrEvent(
+    id: id,
+    pubkey: pubkey,
+    createdAt: createdAt,
+    kind: 9,
+    tags: [
+      ['h', 'channel-a'],
+      if (parentId != null) ...[
+        ['e', rootId ?? parentId, '', 'root'],
+        ['e', parentId, '', 'reply'],
+      ],
+    ],
+    content: content,
+    sig: '',
+  );
+}
+
+final _forumPost = ForumPost(
+  eventId: 'post-1',
+  pubkey: 'author',
+  content: 'Forum post body',
+  kind: 45001,
+  createdAt: 500,
+  channelId: 'channel-forum',
+  tags: const [
+    ['h', 'channel-forum'],
+  ],
+);
+
 void main() {
   void useWideSurface(WidgetTester tester) {
     tester.view.devicePixelRatio = 1.0;
@@ -52,6 +111,7 @@ void main() {
   ProviderContainer createContainer({
     List<Channel>? channels,
     _RecordingReadStateNotifier? readState,
+    Map<String, _FakeMessagesNotifier>? messages,
   }) {
     final loaded = channels ?? [_channelA, _channelB];
     final container = ProviderContainer(
@@ -66,10 +126,21 @@ void main() {
         relayClientProvider.overrideWithValue(
           RelayClient(baseUrl: 'http://localhost:3000'),
         ),
+        threadRepliesProvider.overrideWith((ref, args) async => <NostrEvent>[]),
+        forumPostsProvider.overrideWith(
+          (ref, channelId) async => ForumPostsResponse(posts: [_forumPost]),
+        ),
+        forumThreadProvider.overrideWith(
+          (ref, args) async => ForumThreadResponse(
+            post: _forumPost,
+            replies: const [],
+            totalReplies: 0,
+          ),
+        ),
         for (final channel in loaded) ...[
-          channelMessagesProvider(
-            channel.id,
-          ).overrideWith(() => _FakeMessagesNotifier(channel.id)),
+          channelMessagesProvider(channel.id).overrideWith(
+            () => messages?[channel.id] ?? _FakeMessagesNotifier(channel.id),
+          ),
           channelTypingProvider(
             channel.id,
           ).overrideWith(() => _FakeTypingNotifier(channel.id)),
@@ -233,6 +304,258 @@ void main() {
     await tester.pump();
     expect(readState.markCalls, [('channel-a', 1000), ('channel-a', 1000)]);
   });
+
+  group('thread side panel', () {
+    /// Container whose channel-a window holds [events] and can additionally
+    /// fetch [loadable] through the deep-link loader.
+    (ProviderContainer, _FakeMessagesNotifier) createThreadContainer({
+      List<NostrEvent> events = const [],
+      List<NostrEvent> loadable = const [],
+    }) {
+      final messages = _FakeMessagesNotifier(
+        'channel-a',
+        events: events,
+        loadable: loadable,
+      );
+      final container = createContainer(messages: {'channel-a': messages});
+      return (container, messages);
+    }
+
+    testWidgets('renders as a right-edge overlay above the message pane', (
+      tester,
+    ) async {
+      useWideSurface(tester);
+      final (container, _) = createThreadContainer(
+        events: [_messageEvent(id: 'root-1', content: 'root message')],
+      );
+
+      await tester.pumpWidget(buildTestable(container));
+      await tester.pump();
+      container.read(shellStateProvider.notifier)
+        ..selectChannel('channel-a')
+        ..openThreadPanel('root-1');
+      await tester.pump();
+      await tester.pump();
+
+      expect(find.byType(ThreadView), findsOneWidget);
+      // Overlay, not a replacement: the message pane stays mounted beneath.
+      expect(find.byType(ChannelDetailView), findsOneWidget);
+
+      final panel = find.byType(SidePanelSurface);
+      expect(tester.getSize(panel).width, kSidePanelWidth);
+      expect(tester.getTopRight(panel).dx, 1440);
+      expect(tester.getTopLeft(panel).dy, 0);
+    });
+
+    testWidgets('resolves a nested thread head that the main timeline omits', (
+      tester,
+    ) async {
+      useWideSurface(tester);
+      final (container, _) = createThreadContainer(
+        events: [
+          _messageEvent(id: 'root-1', content: 'root message'),
+          _messageEvent(
+            id: 'reply-1',
+            content: 'nested reply',
+            createdAt: 200,
+            parentId: 'root-1',
+          ),
+        ],
+      );
+
+      await tester.pumpWidget(buildTestable(container));
+      await tester.pump();
+      container.read(shellStateProvider.notifier).selectChannel('channel-a');
+      await tester.pump();
+      await tester.pump();
+      // The reply is not a main-timeline entry, so it renders nowhere yet.
+      expect(find.text('nested reply'), findsNothing);
+
+      container.read(shellStateProvider.notifier).openThreadPanel('reply-1');
+      await tester.pump();
+      await tester.pump();
+
+      expect(find.byType(ThreadView), findsOneWidget);
+      expect(find.text('nested reply'), findsOneWidget);
+      expect(find.byType(CircularProgressIndicator), findsNothing);
+    });
+
+    testWidgets('loads a thread root outside the window before rendering', (
+      tester,
+    ) async {
+      useWideSurface(tester);
+      final (container, messages) = createThreadContainer(
+        events: [_messageEvent(id: 'root-1', content: 'root message')],
+        loadable: [_messageEvent(id: 'far-root', content: 'far away root')],
+      );
+
+      await tester.pumpWidget(buildTestable(container));
+      await tester.pump();
+      container.read(shellStateProvider.notifier)
+        ..selectChannel('channel-a')
+        ..openThreadPanel('far-root');
+      await tester.pump();
+
+      // Loading state, not a permanent spinner: the loader was asked for the
+      // missing root.
+      expect(find.byType(ThreadView), findsNothing);
+      expect(find.byType(CircularProgressIndicator), findsOneWidget);
+      expect(messages.loadCalls, [
+        {'far-root'},
+      ]);
+
+      await tester.pump();
+      await tester.pump();
+
+      expect(find.byType(ThreadView), findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.byType(SidePanelSurface),
+          matching: find.text('far away root'),
+        ),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('the close button clears the panel', (tester) async {
+      useWideSurface(tester);
+      final (container, _) = createThreadContainer(
+        events: [_messageEvent(id: 'root-1', content: 'root message')],
+      );
+
+      await tester.pumpWidget(buildTestable(container));
+      await tester.pump();
+      container.read(shellStateProvider.notifier)
+        ..selectChannel('channel-a')
+        ..openThreadPanel('root-1');
+      await tester.pump();
+      await tester.pump();
+      expect(find.byType(ThreadView), findsOneWidget);
+
+      await tester.tap(find.byKey(const ValueKey('side-panel-close')));
+      await tester.pump();
+      await tester.pump();
+
+      expect(
+        container.read(shellStateProvider).sidePanel,
+        isA<ShellSidePanelNone>(),
+      );
+      expect(find.byType(ThreadView), findsNothing);
+    });
+
+    testWidgets('switching channels clears the panel', (tester) async {
+      useWideSurface(tester);
+      final (container, _) = createThreadContainer(
+        events: [_messageEvent(id: 'root-1', content: 'root message')],
+      );
+
+      await tester.pumpWidget(buildTestable(container));
+      await tester.pump();
+      container.read(shellStateProvider.notifier)
+        ..selectChannel('channel-a')
+        ..openThreadPanel('root-1');
+      await tester.pump();
+      await tester.pump();
+      expect(find.byType(ThreadView), findsOneWidget);
+
+      container.read(shellStateProvider.notifier).selectChannel('channel-b');
+      await tester.pump();
+      await tester.pump();
+
+      expect(find.byType(ThreadView), findsNothing);
+      expect(
+        container.read(shellStateProvider).sidePanel,
+        isA<ShellSidePanelNone>(),
+      );
+    });
+
+    testWidgets('opening the activity panel closes the thread panel', (
+      tester,
+    ) async {
+      useWideSurface(tester);
+      final (container, _) = createThreadContainer(
+        events: [_messageEvent(id: 'root-1', content: 'root message')],
+      );
+
+      await tester.pumpWidget(buildTestable(container));
+      await tester.pump();
+      container.read(shellStateProvider.notifier)
+        ..selectChannel('channel-a')
+        ..openThreadPanel('root-1');
+      await tester.pump();
+      await tester.pump();
+      expect(find.byType(ThreadView), findsOneWidget);
+
+      container.read(shellStateProvider.notifier).toggleActivityPanel();
+      await tester.pump();
+      await tester.pump();
+
+      expect(find.byType(ThreadView), findsNothing);
+      expect(find.byType(SidePanelSurface), findsNothing);
+    });
+
+    testWidgets('a deep-link selection with a thread root opens the panel', (
+      tester,
+    ) async {
+      useWideSurface(tester);
+      final (container, _) = createThreadContainer(
+        events: [_messageEvent(id: 'root-1', content: 'root message')],
+      );
+      final observer = _CountingNavigatorObserver();
+
+      await tester.pumpWidget(buildTestable(container, observer: observer));
+      await tester.pump();
+      final pushesBefore = observer.pushCount;
+
+      // Mirrors what the deep-link dispatcher writes at expanded widths.
+      container
+          .read(shellStateProvider.notifier)
+          .selectChannel(
+            'channel-a',
+            initialMessageId: 'root-1',
+            initialThreadRootId: 'root-1',
+          );
+      await tester.pump();
+      await tester.pump();
+      await tester.pump();
+
+      final panel = container.read(shellStateProvider).sidePanel;
+      expect(panel, isA<ShellSidePanelThread>());
+      expect((panel as ShellSidePanelThread).rootId, 'root-1');
+      expect(panel.initialMessageId, 'root-1');
+      expect(find.byType(ThreadView), findsOneWidget);
+      // No push: the thread opened in the panel.
+      expect(observer.pushCount, pushesBefore);
+    });
+  });
+
+  group('forum thread side panel', () {
+    testWidgets('tapping a post opens the panel instead of pushing', (
+      tester,
+    ) async {
+      useWideSurface(tester);
+      final container = createContainer(channels: [_channelA, _forumChannel]);
+      final observer = _CountingNavigatorObserver();
+
+      await tester.pumpWidget(buildTestable(container, observer: observer));
+      await tester.pump();
+      container
+          .read(shellStateProvider.notifier)
+          .selectChannel('channel-forum');
+      await tester.pumpAndSettle();
+      final pushesBefore = observer.pushCount;
+
+      await tester.tap(find.byType(ForumPostCard));
+      await tester.pumpAndSettle();
+
+      expect(
+        container.read(shellStateProvider).sidePanel,
+        isA<ShellSidePanelForumThread>(),
+      );
+      expect(find.byType(ForumThreadView), findsOneWidget);
+      expect(observer.pushCount, pushesBefore);
+    });
+  });
 }
 
 class _FakeChannelsNotifier extends ChannelsNotifier {
@@ -248,10 +571,24 @@ class _FakeChannelsNotifier extends ChannelsNotifier {
 }
 
 class _FakeMessagesNotifier extends ChannelMessagesNotifier {
-  _FakeMessagesNotifier(super.channelId);
+  /// Events already inside the loaded channel window.
+  final List<NostrEvent> events;
+
+  /// Events the deep-link loader can fetch on demand, mirroring the real
+  /// notifier's `loadEventsById` behavior of widening the window.
+  final List<NostrEvent> loadable;
+
+  final List<Set<String>> loadCalls = [];
+  final List<Set<String>> releaseCalls = [];
+
+  _FakeMessagesNotifier(
+    super.channelId, {
+    this.events = const [],
+    this.loadable = const [],
+  });
 
   @override
-  AsyncValue<List<NostrEvent>> build() => const AsyncData([]);
+  AsyncValue<List<NostrEvent>> build() => AsyncData(events);
 
   @override
   bool get reachedOldest => true;
@@ -260,10 +597,18 @@ class _FakeMessagesNotifier extends ChannelMessagesNotifier {
   Future<bool> fetchOlder() async => false;
 
   @override
-  Future<void> loadEventsById(Iterable<String> eventIds) async {}
+  Future<void> loadEventsById(Iterable<String> eventIds) async {
+    final ids = eventIds.toSet();
+    loadCalls.add(ids);
+    final fetched = loadable.where((event) => ids.contains(event.id)).toList();
+    if (fetched.isEmpty) return;
+    state = AsyncData([...?state.value, ...fetched]);
+  }
 
   @override
-  void releaseDeepLinkEvents(Iterable<String> eventIds) {}
+  void releaseDeepLinkEvents(Iterable<String> eventIds) {
+    releaseCalls.add(eventIds.toSet());
+  }
 }
 
 class _FakeTypingNotifier extends ChannelTypingNotifier {
@@ -285,6 +630,9 @@ class _FakeUserCacheNotifier extends UserCacheNotifier {
 
   @override
   UserProfile? get(String pubkey) => null;
+
+  @override
+  void preload(List<String> pubkeys) {}
 }
 
 class _RecordingReadStateNotifier extends ReadStateNotifier {
