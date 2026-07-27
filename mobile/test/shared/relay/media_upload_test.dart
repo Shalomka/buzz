@@ -1250,4 +1250,76 @@ void main() {
       }
     });
   });
+
+  group('supportsMediaUpload capability', () {
+    // The other groups in this file omit the flag and so get the `true`
+    // default — they are the mobile control for everything below.
+    late int imagePickerCalls;
+    late int videoPickerCalls;
+    late int clipboardReads;
+
+    MediaUploadService buildService() {
+      imagePickerCalls = 0;
+      videoPickerCalls = 0;
+      clipboardReads = 0;
+      return MediaUploadService(
+        baseUrl: 'https://relay.example',
+        nsec: null,
+        supportsMediaUpload: false,
+        pickGalleryImage: () async {
+          imagePickerCalls += 1;
+          return null;
+        },
+        pickGalleryVideo: () async {
+          videoPickerCalls += 1;
+          return null;
+        },
+        readClipboardImage: () async {
+          clipboardReads += 1;
+          return null;
+        },
+      );
+    }
+
+    Matcher throwsWebUnsupported() => throwsA(
+      isA<Exception>().having(
+        (e) => e.toString(),
+        'message',
+        contains('not supported in the browser'),
+      ),
+    );
+
+    test('pickAndUploadImage fails before reaching the picker', () async {
+      final service = buildService();
+
+      await expectLater(service.pickAndUploadImage, throwsWebUnsupported());
+
+      // Failing before the picker also means failing before the native
+      // buzz/media_upload channel (sanitizeImageForUpload /
+      // transcodeImageToJpeg) and before any File(...) call.
+      expect(imagePickerCalls, 0);
+    });
+
+    test('pickAndUploadVideo fails before reaching the picker', () async {
+      final service = buildService();
+
+      await expectLater(service.pickAndUploadVideo, throwsWebUnsupported());
+
+      expect(videoPickerCalls, 0);
+    });
+
+    test(
+      'readAndUploadClipboardImage fails before reading the clipboard',
+      () async {
+        final service = buildService();
+
+        await expectLater(
+          service.readAndUploadClipboardImage,
+          throwsWebUnsupported(),
+        );
+
+        expect(clipboardReads, 0);
+      },
+    );
+  });
 }

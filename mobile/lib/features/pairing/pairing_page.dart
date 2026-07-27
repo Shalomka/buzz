@@ -4,6 +4,7 @@ import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
+import '../../shared/platform/is_web.dart';
 import '../../shared/theme/theme.dart';
 import 'pairing_provider.dart';
 
@@ -17,6 +18,7 @@ class PairingPage extends HookConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final pairingState = ref.watch(pairingProvider);
+    final isWeb = ref.watch(isWebProvider);
     final codeController = useTextEditingController();
     final isBusy =
         pairingState.status == PairingStatus.connecting ||
@@ -73,7 +75,9 @@ class PairingPage extends HookConsumerWidget {
                       ),
                       const SizedBox(height: Grid.xxs),
                       Text(
-                        'Scan the QR code from your desktop app\nor paste a pairing code to connect.',
+                        isWeb
+                            ? 'Paste a pairing code from your desktop app to connect.'
+                            : 'Scan the QR code from your desktop app\nor paste a pairing code to connect.',
                         textAlign: TextAlign.center,
                         style: context.textTheme.bodyMedium?.copyWith(
                           color: context.colors.onSurfaceVariant,
@@ -82,36 +86,39 @@ class PairingPage extends HookConsumerWidget {
 
                       const SizedBox(height: Grid.lg),
 
-                      // Scan QR button
-                      FilledButton.icon(
-                        onPressed: isBusy
-                            ? null
-                            : () => _openScanner(context, ref),
-                        icon: const Icon(LucideIcons.scanLine),
-                        label: const Text('Scan QR Code'),
-                      ),
+                      // Scan QR button — the camera scanner is native-only, so
+                      // the browser gets the paste-only flow.
+                      if (!isWeb) ...[
+                        FilledButton.icon(
+                          onPressed: isBusy
+                              ? null
+                              : () => _openScanner(context, ref),
+                          icon: const Icon(LucideIcons.scanLine),
+                          label: const Text('Scan QR Code'),
+                        ),
 
-                      const SizedBox(height: Grid.sm),
+                        const SizedBox(height: Grid.sm),
 
-                      Row(
-                        children: [
-                          const Expanded(child: Divider()),
-                          Padding(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: Grid.twelve,
-                            ),
-                            child: Text(
-                              'or paste pairing code',
-                              style: context.textTheme.bodySmall?.copyWith(
-                                color: context.colors.onSurfaceVariant,
+                        Row(
+                          children: [
+                            const Expanded(child: Divider()),
+                            Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: Grid.twelve,
+                              ),
+                              child: Text(
+                                'or paste pairing code',
+                                style: context.textTheme.bodySmall?.copyWith(
+                                  color: context.colors.onSurfaceVariant,
+                                ),
                               ),
                             ),
-                          ),
-                          const Expanded(child: Divider()),
-                        ],
-                      ),
+                            const Expanded(child: Divider()),
+                          ],
+                        ),
 
-                      const SizedBox(height: Grid.sm),
+                        const SizedBox(height: Grid.sm),
+                      ],
 
                       // Paste field
                       TextField(

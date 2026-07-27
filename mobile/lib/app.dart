@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:app_badge_plus/app_badge_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_hooks/flutter_hooks.dart';
@@ -12,6 +14,7 @@ import 'features/channels/deep_link_dispatcher.dart';
 import 'features/profile/user_status_cache_provider.dart';
 import 'shared/auth/auth.dart';
 import 'shared/deeplink/pending_deep_link_provider.dart';
+import 'shared/platform/is_web.dart';
 import 'shared/relay/relay.dart';
 import 'shared/theme/theme.dart';
 
@@ -24,6 +27,7 @@ class App extends HookConsumerWidget {
     final accentIndex = ref.watch(accentProvider);
     final schemeName = ref.watch(schemeProvider);
     final authState = ref.watch(authProvider);
+    final isWeb = ref.watch(isWebProvider);
 
     final resolved = resolveSchemes(schemeName);
     final lightScheme = applyAccent(resolved.light, accentIndex);
@@ -46,13 +50,21 @@ class App extends HookConsumerWidget {
     ref.watch(pendingDeepLinkProvider);
 
     void applyBadge(UnreadBadgeState state) {
-      if (state.highPriorityCount > 0) {
-        AppBadgePlus.updateBadge(state.highPriorityCount);
-      } else if (state.generalUnreadCount > 0) {
-        AppBadgePlus.updateBadge(1);
-      } else {
-        AppBadgePlus.updateBadge(0);
-      }
+      // app_badge_plus has no web implementation; every call throws
+      // MissingPluginException in a browser. isSupported() throws too, so it
+      // cannot be used as a probe — gate at the call site.
+      if (isWeb) return;
+      final count = state.highPriorityCount > 0
+          ? state.highPriorityCount
+          : (state.generalUnreadCount > 0 ? 1 : 0);
+      // Fire-and-forget: some Android launchers reject badge updates, and the
+      // returned Future was previously discarded, so a rejection surfaced as
+      // an unhandled async error.
+      unawaited(
+        AppBadgePlus.updateBadge(count).catchError((Object error) {
+          debugPrint('Failed to update app badge: $error');
+        }),
+      );
     }
 
     useEffect(() {

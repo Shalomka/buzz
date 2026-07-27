@@ -9,6 +9,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:nostr/nostr.dart' as nostr;
 import 'package:pointycastle/digests/sha256.dart';
 
+import '../platform/is_web.dart';
 import 'media_auth.dart';
 import 'mp4_fast_start.dart';
 import 'relay_provider.dart';
@@ -48,6 +49,8 @@ const _unsupportedAnimatedPngUploadMessage =
 const _unsupportedAnimatedWebpUploadMessage =
     'Animated WebP uploads are not supported on mobile yet';
 const _mediaPolicyUploadMessage = "We couldn't prepare this image for upload.";
+const _unsupportedWebMediaUploadMessage =
+    'Media upload is not supported in the browser yet.';
 
 typedef PickGalleryImage = Future<XFile?> Function();
 typedef PickGalleryVideo = Future<XFile?> Function();
@@ -141,6 +144,12 @@ class MediaUploadService {
   final http.Client _http;
   final bool _ownsHttpClient;
 
+  /// Whether the host platform can pick and prepare media for upload.
+  ///
+  /// False in a browser: the pick-and-upload entry points all reach the native
+  /// `buzz/media_upload` channel, which has no web implementation.
+  final bool _supportsMediaUpload;
+
   MediaUploadService({
     required String baseUrl,
     required String? nsec,
@@ -152,7 +161,9 @@ class MediaUploadService {
     ReadClipboardImage? readClipboardImage,
     DateTime Function()? now,
     http.Client? httpClient,
+    bool supportsMediaUpload = true,
   }) : _baseUrl = baseUrl,
+       _supportsMediaUpload = supportsMediaUpload,
        _nsec = nsec,
        _pickGalleryImage = pickGalleryImage,
        _pickGalleryVideo = pickGalleryVideo,
@@ -172,6 +183,9 @@ class MediaUploadService {
   }
 
   Future<BlobDescriptor?> pickAndUploadImage() async {
+    if (!_supportsMediaUpload) {
+      throw Exception(_unsupportedWebMediaUploadMessage);
+    }
     final pickedImage = await _pickGalleryImage();
     if (pickedImage == null) return null;
     return uploadImage(pickedImage);
@@ -190,6 +204,9 @@ class MediaUploadService {
   }
 
   Future<BlobDescriptor> readAndUploadClipboardImage() async {
+    if (!_supportsMediaUpload) {
+      throw Exception(_unsupportedWebMediaUploadMessage);
+    }
     final bytes = await _readClipboardImage();
     if (bytes == null || bytes.isEmpty) {
       throw Exception('Unable to read pasted image');
@@ -198,6 +215,9 @@ class MediaUploadService {
   }
 
   Future<BlobDescriptor?> pickAndUploadVideo() async {
+    if (!_supportsMediaUpload) {
+      throw Exception(_unsupportedWebMediaUploadMessage);
+    }
     final pickedVideo = await _pickGalleryVideo();
     if (pickedVideo == null) return null;
     final length = await pickedVideo.length();
@@ -673,6 +693,7 @@ final mediaUploadServiceProvider = Provider<MediaUploadService>((ref) {
       requestFullMetadata: false,
     ),
     pickGalleryVideo: () => picker.pickVideo(source: ImageSource.gallery),
+    supportsMediaUpload: !ref.watch(isWebProvider),
   );
   ref.onDispose(service.dispose);
   return service;

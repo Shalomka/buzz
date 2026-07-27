@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:buzz/features/pairing/pairing_page.dart';
 import 'package:buzz/features/pairing/pairing_provider.dart';
+import 'package:buzz/shared/platform/is_web.dart';
 
 import '../../helpers/widget_helpers.dart';
 
@@ -103,6 +104,30 @@ void main() {
 
       final textField = tester.widget<TextField>(find.byType(TextField));
       expect(textField.enabled, isFalse);
+    });
+
+    testWidgets('hides the QR scan affordance on web and keeps the paste flow', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        WidgetHelpers.testable(
+          overrides: [isWebProvider.overrideWithValue(true)],
+          child: const PairingPage(),
+        ),
+      );
+
+      // The camera scanner is native-only; the first test in this group is the
+      // non-web control that asserts both of these are present.
+      expect(find.text('Scan QR Code'), findsNothing);
+      expect(find.text('or paste pairing code'), findsNothing);
+
+      // The paste-only flow stays fully intact.
+      expect(find.byType(TextField), findsOneWidget);
+      expect(find.text('Connect'), findsOneWidget);
+      expect(
+        find.text('Paste a pairing code from your desktop app to connect.'),
+        findsOneWidget,
+      );
     });
   });
 }

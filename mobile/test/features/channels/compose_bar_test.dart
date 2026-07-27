@@ -19,6 +19,7 @@ import 'package:buzz/features/channels/compose_bar.dart';
 import 'package:buzz/features/channels/channels_provider.dart';
 import 'package:buzz/features/channels/mentions/mention_candidates.dart';
 import 'package:buzz/features/channels/mentions/mention_candidates_provider.dart';
+import 'package:buzz/shared/platform/is_web.dart';
 import 'package:buzz/shared/relay/relay.dart';
 import 'package:buzz/shared/theme/theme.dart';
 import 'package:buzz/shared/widgets/attachment_drop_region.dart';
@@ -1709,6 +1710,114 @@ void main() {
 
       expect(controller.text, '@Name ');
       expect(controller.selection.baseOffset, 6);
+    });
+  });
+
+  group('web gates', () {
+    // Self-contained handler so this group does not depend on which mock is
+    // installed by the time it runs.
+    var clipboardHasImageCalls = 0;
+
+    setUp(() {
+      clipboardHasImageCalls = 0;
+      _setMockMediaUploadPlatformHandler((call) async {
+        switch (call.method) {
+          case 'sanitizeImageForUpload':
+            final arguments = call.arguments as Map<Object?, Object?>;
+            return arguments['bytes'] as Uint8List;
+          case 'transcodeImageToJpeg':
+            return _pngBytes;
+          case 'clipboardHasImage':
+            clipboardHasImageCalls += 1;
+            return true;
+          default:
+            return null;
+        }
+      });
+    });
+
+    // This group replaces the shared setUpAll handler, so put the default
+    // back — otherwise a group added after this one would silently inherit
+    // the counting handler.
+    tearDown(() {
+      _setMockMediaUploadPlatformHandler((call) async {
+        switch (call.method) {
+          case 'sanitizeImageForUpload':
+            final arguments = call.arguments as Map<Object?, Object?>;
+            return arguments['bytes'] as Uint8List;
+          case 'transcodeImageToJpeg':
+            return _pngBytes;
+          case 'clipboardHasImage':
+            return true;
+          default:
+            return null;
+        }
+      });
+    });
+
+    Widget buildWebComposeBar({required bool isWeb}) {
+      return _buildComposeBar(
+        uploadService: MediaUploadService(
+          baseUrl: 'https://relay.example',
+          nsec: nostr.Keys.generate().nsec,
+          pickGalleryVideo: () async => null,
+          pickGalleryImage: () async => null,
+        ),
+        extraOverrides: [isWebProvider.overrideWithValue(isWeb)],
+        onSend:
+            (
+              content,
+              mentionPubkeys, {
+              mediaTags = const <List<String>>[],
+            }) async {},
+      );
+    }
+
+    testWidgets('hides the attach affordance on web', (tester) async {
+      await tester.pumpWidget(buildWebComposeBar(isWeb: true));
+      await tester.pump();
+
+      // The paperclip is the only entry point to the attach sheet, so hiding
+      // it removes both the Photo and Video pick-and-upload paths. The eight
+      // existing paperclip taps in this file are the non-web control.
+      expect(find.byIcon(LucideIcons.paperclip), findsNothing);
+    });
+
+    testWidgets('probes the clipboard on iOS off web', (tester) async {
+      final previousPlatform = debugDefaultTargetPlatformOverride;
+      debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+      try {
+        await tester.pumpWidget(buildWebComposeBar(isWeb: false));
+        await tester.pump();
+
+        // Control: without this the web assertion below would pass vacuously,
+        // since flutter_test defaults the platform to android and the probe's
+        // iOS guard would short-circuit first.
+        expect(clipboardHasImageCalls, greaterThanOrEqualTo(1));
+      } finally {
+        debugDefaultTargetPlatformOverride = previousPlatform;
+      }
+    });
+
+    testWidgets('never probes the clipboard on web, even on an iOS UA', (
+      tester,
+    ) async {
+      final previousPlatform = debugDefaultTargetPlatformOverride;
+      debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+      try {
+        await tester.pumpWidget(buildWebComposeBar(isWeb: true));
+        await tester.pump();
+
+        final focusNode = tester
+            .widget<TextField>(find.byType(TextField))
+            .focusNode!;
+        focusNode.requestFocus();
+        await tester.pump();
+
+        expect(clipboardHasImageCalls, 0);
+      } finally {
+        debugDefaultTargetPlatformOverride = previousPlatform;
+      }
     });
   });
 }

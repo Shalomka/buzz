@@ -10,6 +10,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import 'package:nostr/nostr.dart' as nostr;
 
+import '../../shared/platform/is_web.dart';
 import '../../shared/relay/relay.dart';
 import '../../shared/theme/theme.dart';
 import '../../shared/widgets/adaptive_modal.dart';
@@ -132,13 +133,16 @@ class ComposeBar extends HookConsumerWidget {
     final hasAttachments = attachments.value.isNotEmpty;
     final hasPendingUploads = uploadingCount.value > 0;
     final customEmoji = ref.watch(customEmojiListProvider);
+    final isWeb = ref.watch(isWebProvider);
 
     final resolvedHint =
         hintText ??
         (channelName.isNotEmpty ? 'Message #$channelName' : 'Message\u2026');
 
     useEffect(() {
-      if (defaultTargetPlatform != TargetPlatform.iOS) return null;
+      // defaultTargetPlatform is user-agent derived on web, so iOS Safari
+      // reaches this; the buzz/media_upload channel has no web side.
+      if (isWeb || defaultTargetPlatform != TargetPlatform.iOS) return null;
 
       var disposed = false;
       Future<void> refreshClipboardAvailability() async {
@@ -744,46 +748,51 @@ class ComposeBar extends HookConsumerWidget {
                 // Row 2 — action buttons [paperclip, emoji, @, Aa] ... [send].
                 Row(
                   children: [
-                    _ComposeAction(
-                      icon: LucideIcons.paperclip,
-                      onTap: () {
-                        showAdaptiveModal<void>(
-                          context,
-                          showDragHandle: true,
-                          builder: (sheetContext) => SafeArea(
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                ListTile(
-                                  leading: const Icon(LucideIcons.image),
-                                  title: const Text('Photo'),
-                                  onTap: () {
-                                    Navigator.of(sheetContext).pop();
-                                    pickAndUpload(
-                                      ref
-                                          .read(mediaUploadServiceProvider)
-                                          .pickAndUploadImage,
-                                    );
-                                  },
-                                ),
-                                ListTile(
-                                  leading: const Icon(LucideIcons.video),
-                                  title: const Text('Video'),
-                                  onTap: () {
-                                    Navigator.of(sheetContext).pop();
-                                    pickAndUpload(
-                                      ref
-                                          .read(mediaUploadServiceProvider)
-                                          .pickAndUploadVideo,
-                                    );
-                                  },
-                                ),
-                              ],
+                    // Both pick-and-upload paths need the native
+                    // buzz/media_upload channel (video transcode; image EXIF
+                    // scrub), which has no web implementation — see "Media
+                    // upload on web" in the plan.
+                    if (!isWeb)
+                      _ComposeAction(
+                        icon: LucideIcons.paperclip,
+                        onTap: () {
+                          showAdaptiveModal<void>(
+                            context,
+                            showDragHandle: true,
+                            builder: (sheetContext) => SafeArea(
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  ListTile(
+                                    leading: const Icon(LucideIcons.image),
+                                    title: const Text('Photo'),
+                                    onTap: () {
+                                      Navigator.of(sheetContext).pop();
+                                      pickAndUpload(
+                                        ref
+                                            .read(mediaUploadServiceProvider)
+                                            .pickAndUploadImage,
+                                      );
+                                    },
+                                  ),
+                                  ListTile(
+                                    leading: const Icon(LucideIcons.video),
+                                    title: const Text('Video'),
+                                    onTap: () {
+                                      Navigator.of(sheetContext).pop();
+                                      pickAndUpload(
+                                        ref
+                                            .read(mediaUploadServiceProvider)
+                                            .pickAndUploadVideo,
+                                      );
+                                    },
+                                  ),
+                                ],
+                              ),
                             ),
-                          ),
-                        );
-                      },
-                    ),
+                          );
+                        },
+                      ),
                     _ComposeAction(
                       icon: LucideIcons.smilePlus,
                       onTap: () => showEmojiPicker(
