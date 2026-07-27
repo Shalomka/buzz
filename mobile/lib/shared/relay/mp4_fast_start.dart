@@ -1,3 +1,13 @@
+/// MP4 "fast start" rewriting — **native-only at runtime**.
+///
+/// This library is compiled for the web target but cannot be *used* there:
+/// `dart:io` `File`/`RandomAccessFile` and `ByteData.getUint64`/`setUint64`
+/// all throw `UnsupportedError` under dart2js. Part 1 of the web target only
+/// removed a `0x7fffffffffffffff` literal that was a hard dart2js *compile*
+/// error; it did not make this code work in a browser. Callers must keep it
+/// behind a native-platform check.
+library;
+
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -8,7 +18,6 @@ const _maxBoxDepth = 32;
 const _maxMoovBytes = 64 * 1024 * 1024;
 const _copyBufferBytes = 1024 * 1024;
 const _uint32Max = 0xffffffff;
-const _uint64Max = 0x7fffffffffffffff;
 const _containerTypes = {
   'moov',
   'trak',
@@ -329,10 +338,11 @@ void _patchCo64(
     final entry = start + 8 + index * 8;
     final value = data.getUint64(entry, Endian.big);
     if (value >= movedRegionStart && value < movedRegionEnd) {
+      // No 64-bit overflow guard here: `int` is exactly 64-bit signed on the
+      // VM, so `adjusted` can never exceed 0x7fffffffffffffff — the former
+      // check was vacuous. The literal also cannot be represented exactly in
+      // JavaScript, which broke the dart2js build.
       final adjusted = value + delta;
-      if (adjusted > _uint64Max) {
-        throw const FormatException('co64 offset overflow');
-      }
       data.setUint64(entry, adjusted, Endian.big);
     }
   }

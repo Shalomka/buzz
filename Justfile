@@ -589,6 +589,10 @@ mobile-test:
 mobile-build-android:
     unset GIT_DIR GIT_WORK_TREE; cd {{mobile_dir}} && flutter build apk --debug --no-pub
 
+# Compile the Flutter web build (release)
+mobile-build-web:
+    unset GIT_DIR GIT_WORK_TREE; cd {{mobile_dir}} && flutter build web --release --no-pub
+
 # Run the mobile app on iOS simulator
 mobile-dev:
     #!/usr/bin/env bash

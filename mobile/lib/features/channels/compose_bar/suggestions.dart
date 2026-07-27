@@ -19,9 +19,12 @@ class _MentionSuggestions extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       constraints: const BoxConstraints(maxHeight: 240),
-      clipBehavior: Clip.hardEdge,
+      // [Clip.antiAlias], not [Clip.hardEdge]: [Container] applies its clip
+      // *inside* the [DecoratedBox], so the opaque [Material] fill below is
+      // what the rounded top corners cut through. A hard edge would alias
+      // them (and any ink splash reaching them).
+      clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
-        color: context.colors.surfaceContainerHighest,
         borderRadius: const BorderRadius.vertical(
           top: Radius.circular(Radii.dialog),
         ),
@@ -33,42 +36,49 @@ class _MentionSuggestions extends StatelessWidget {
           ),
         ],
       ),
-      child: ListView.separated(
-        shrinkWrap: true,
-        padding: const EdgeInsets.symmetric(vertical: Grid.xxs),
-        itemCount: suggestions.length,
-        separatorBuilder: (_, _) => const SizedBox.shrink(),
-        itemBuilder: (context, index) {
-          final candidate = suggestions[index];
-          final name = candidate.label;
-          final avatarUrl =
-              candidate.avatarUrl ?? userCache[candidate.pubkey]?.avatarUrl;
+      // The surface colour lives on this [Material], not on the decoration
+      // above: [ListTile] paints its background and ink splashes onto the
+      // nearest [Material] ancestor, so a coloured [DecoratedBox] in between
+      // would hide them.
+      child: Material(
+        color: context.colors.surfaceContainerHighest,
+        child: ListView.separated(
+          shrinkWrap: true,
+          padding: const EdgeInsets.symmetric(vertical: Grid.xxs),
+          itemCount: suggestions.length,
+          separatorBuilder: (_, _) => const SizedBox.shrink(),
+          itemBuilder: (context, index) {
+            final candidate = suggestions[index];
+            final name = candidate.label;
+            final avatarUrl =
+                candidate.avatarUrl ?? userCache[candidate.pubkey]?.avatarUrl;
 
-          return ListTile(
-            dense: true,
-            visualDensity: VisualDensity.compact,
-            leading: AvatarImage(
-              imageUrl: avatarUrl,
-              radius: 14,
-              backgroundColor: context.colors.primaryContainer,
-              fallback: Text(
-                name[0].toUpperCase(),
-                style: context.textTheme.labelSmall?.copyWith(
-                  color: context.colors.onPrimaryContainer,
+            return ListTile(
+              dense: true,
+              visualDensity: VisualDensity.compact,
+              leading: AvatarImage(
+                imageUrl: avatarUrl,
+                radius: 14,
+                backgroundColor: context.colors.primaryContainer,
+                fallback: Text(
+                  name[0].toUpperCase(),
+                  style: context.textTheme.labelSmall?.copyWith(
+                    color: context.colors.onPrimaryContainer,
+                  ),
                 ),
               ),
-            ),
-            title: Text(name, style: context.textTheme.bodyMedium),
-            subtitle: _MentionSuggestionInfo.build(
-              context,
-              candidate: candidate,
-              currentPubkey: currentPubkey,
-              isDmChannel: isDmChannel,
-              userCache: userCache,
-            ),
-            onTap: () => onSelect(candidate),
-          );
-        },
+              title: Text(name, style: context.textTheme.bodyMedium),
+              subtitle: _MentionSuggestionInfo.build(
+                context,
+                candidate: candidate,
+                currentPubkey: currentPubkey,
+                isDmChannel: isDmChannel,
+                userCache: userCache,
+              ),
+              onTap: () => onSelect(candidate),
+            );
+          },
+        ),
       ),
     );
   }
@@ -173,9 +183,12 @@ class _ChannelSuggestions extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       constraints: const BoxConstraints(maxHeight: 240),
-      clipBehavior: Clip.hardEdge,
+      // [Clip.antiAlias], not [Clip.hardEdge]: [Container] applies its clip
+      // *inside* the [DecoratedBox], so the opaque [Material] fill below is
+      // what the rounded top corners cut through. A hard edge would alias
+      // them (and any ink splash reaching them).
+      clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
-        color: context.colors.surfaceContainerHighest,
         borderRadius: const BorderRadius.vertical(
           top: Radius.circular(Radii.dialog),
         ),
@@ -187,34 +200,41 @@ class _ChannelSuggestions extends StatelessWidget {
           ),
         ],
       ),
-      child: ListView.separated(
-        shrinkWrap: true,
-        padding: const EdgeInsets.symmetric(vertical: Grid.xxs),
-        itemCount: suggestions.length,
-        separatorBuilder: (_, _) => const SizedBox.shrink(),
-        itemBuilder: (context, index) {
-          final channel = suggestions[index];
-          return ListTile(
-            dense: true,
-            visualDensity: VisualDensity.compact,
-            leading: Icon(
-              channel.isForum ? LucideIcons.messageSquare : LucideIcons.hash,
-              size: 18,
-              color: context.colors.onSurfaceVariant,
-            ),
-            title: Text(
-              '#${channel.name}',
-              style: context.textTheme.bodyMedium,
-            ),
-            trailing: Text(
-              channel.channelType,
-              style: context.textTheme.labelSmall?.copyWith(
+      // The surface colour lives on this [Material], not on the decoration
+      // above: [ListTile] paints its background and ink splashes onto the
+      // nearest [Material] ancestor, so a coloured [DecoratedBox] in between
+      // would hide them.
+      child: Material(
+        color: context.colors.surfaceContainerHighest,
+        child: ListView.separated(
+          shrinkWrap: true,
+          padding: const EdgeInsets.symmetric(vertical: Grid.xxs),
+          itemCount: suggestions.length,
+          separatorBuilder: (_, _) => const SizedBox.shrink(),
+          itemBuilder: (context, index) {
+            final channel = suggestions[index];
+            return ListTile(
+              dense: true,
+              visualDensity: VisualDensity.compact,
+              leading: Icon(
+                channel.isForum ? LucideIcons.messageSquare : LucideIcons.hash,
+                size: 18,
                 color: context.colors.onSurfaceVariant,
               ),
-            ),
-            onTap: () => onSelect(channel),
-          );
-        },
+              title: Text(
+                '#${channel.name}',
+                style: context.textTheme.bodyMedium,
+              ),
+              trailing: Text(
+                channel.channelType,
+                style: context.textTheme.labelSmall?.copyWith(
+                  color: context.colors.onSurfaceVariant,
+                ),
+              ),
+              onTap: () => onSelect(channel),
+            );
+          },
+        ),
       ),
     );
   }
